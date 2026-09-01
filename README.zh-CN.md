@@ -81,6 +81,14 @@ claude mcp add opendota -- npx opendota-mcp
 }
 ```
 
+> **Windows 提示**：Claude Desktop（及部分客户端）在 Windows 下不能直接 spawn `npx`，需要 `cmd /c` 包装：
+>
+> ```json
+> { "command": "cmd", "args": ["/c", "npx", "-y", "opendota-mcp"] }
+> ```
+>
+> 该模式已被 `npm run integration` 集成测试覆盖。
+
 ## 工具总览（42 个）
 
 - **查询入口**：`search_dota_entities`（名称→ID，先调这个）、`search_players`（玩家名→account id）、`list_supported_languages`、`get_api_health`、`get_constants`

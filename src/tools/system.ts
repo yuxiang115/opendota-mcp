@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { apiGet } from "../client.js";
 import { getConstantResource } from "../constants.js";
-import { getLocaleBundle, LANGUAGE_LABELS, SUPPORTED_LANGUAGES } from "../locales.js";
+import { getLocaleBundle, LANGUAGE_LABELS, listBundledLanguages, SUPPORTED_LANGUAGES } from "../locales.js";
 import { languageParam, effectiveLanguage, type ToolDef } from "./registry.js";
 
 const ENTITY_KINDS = ["hero", "item", "ability"] as const;
@@ -68,30 +68,43 @@ export const systemTools: ToolDef[] = [
       // Search matches the English bundle AND the requested language's bundle, so both
       // "Anti-Mage" and "敌法师" resolve regardless of the configured default.
       const localized = getLocaleBundle(lang);
+
       const results: Record<string, unknown>[] = [];
-      const searchTable = (table: "heroes" | "items" | "abilities", kind: (typeof ENTITY_KINDS)[number]) => {
-        if (args.kind && args.kind !== kind) return;
-        const en = english[table];
-        const loc = localized[table];
-        let count = 0;
-        for (const [id, entry] of Object.entries(en)) {
-          if (count >= cap) break;
-          const localName = loc[id]?.name ?? "";
-          const haystacks = [entry.name, entry.name_en, entry.internal, localName].map((s) => s.toLowerCase());
-          if (!haystacks.some((h) => h.includes(q))) continue;
-          results.push({
-            kind,
-            id: Number(id),
-            name: localName || entry.name,
-            name_en: entry.name_en,
-            internal: entry.internal,
-          });
-          count++;
-        }
+      const searchBundle = (bundle: ReturnType<typeof getLocaleBundle>) => {
+        const searchTable = (table: "heroes" | "items" | "abilities", kind: (typeof ENTITY_KINDS)[number]) => {
+          if (args.kind && args.kind !== kind) return;
+          const en = english[table];
+          const loc = bundle[table];
+          let count = 0;
+          for (const [id, entry] of Object.entries(en)) {
+            if (count >= cap) break;
+            const localName = loc[id]?.name ?? "";
+            const haystacks = [entry.name, entry.name_en, entry.internal, localName].map((s) => s.toLowerCase());
+            if (!haystacks.some((h) => h.includes(q))) continue;
+            results.push({
+              kind,
+              id: Number(id),
+              name: localName || entry.name,
+              name_en: entry.name_en,
+              internal: entry.internal,
+            });
+            count++;
+          }
+        };
+        searchTable("heroes", "hero");
+        searchTable("items", "item");
+        searchTable("abilities", "ability");
       };
-      searchTable("heroes", "hero");
-      searchTable("items", "item");
-      searchTable("abilities", "ability");
+      searchBundle(localized);
+      // If the query was in another language (e.g. Chinese typed with an English default),
+      // fall back to scanning every bundled language before giving up.
+      if (results.length === 0) {
+        for (const code of listBundledLanguages()) {
+          if (code === "english") continue;
+          searchBundle(getLocaleBundle(code));
+          if (results.length > 0) break;
+        }
+      }
       return { query: args.query, matches: results };
     },
   },

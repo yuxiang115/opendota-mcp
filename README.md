@@ -83,6 +83,14 @@ Add to `claude_desktop_config.json` (Stores → Claude Desktop → config):
 }
 ```
 
+> **Windows note**: Claude Desktop (and some other clients) cannot spawn `npx` directly on Windows — use the `cmd /c` wrapper instead:
+>
+> ```json
+> { "command": "cmd", "args": ["/c", "npx", "-y", "opendota-mcp"] }
+> ```
+>
+> This pattern is covered by the integration test (`npm run integration`).
+
 ## Tools
 
 ### Lookup & system

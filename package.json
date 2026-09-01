@@ -26,6 +26,7 @@
     "dev": "tsc --watch",
     "start": "node dist/index.js",
     "smoke": "node scripts/smoke-test.mjs",
+    "integration": "node scripts/integration-test.mjs",
     "check": "tsc --noEmit"
   },
   "keywords": [
