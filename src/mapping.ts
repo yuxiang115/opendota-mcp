@@ -192,6 +192,9 @@ export async function enrichPlayerMatchRow(
   const out: Record<string, unknown> = { ...row };
   if (hero) out.hero = hero;
   delete out.hero_id;
+  if (row.kills != null && row.deaths != null && row.assists != null) {
+    out.kda = kdaRatio(row.kills as number, row.deaths as number, row.assists as number);
+  }
   if (isRadiant != null) out.is_radiant = isRadiant;
   if (win != null) out.win = win;
   if (row.duration != null) out.duration = formatDuration(row.duration as number);

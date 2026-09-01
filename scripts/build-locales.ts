@@ -86,9 +86,14 @@ function derivedName(internal: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/** Valve loc strings carry unfilled placeholders like "+{s:bonus_damage}% Damage"; strip them. */
+function stripLocPlaceholders(s: string): string {
+  return s.replace(/\{[sd]:[^}]*\}/g, "").replace(/\s+/g, " ").trim();
+}
+
 function toEntry(e: DatafeedEntry): LocaleEntry {
-  const name = e.name_loc || e.name_english_loc || derivedName(e.name);
-  const nameEn = e.name_english_loc || e.name_loc || derivedName(e.name);
+  const name = stripLocPlaceholders(e.name_loc || e.name_english_loc || derivedName(e.name));
+  const nameEn = stripLocPlaceholders(e.name_english_loc || e.name_loc || derivedName(e.name));
   return { name, name_en: nameEn, internal: e.name };
 }
 

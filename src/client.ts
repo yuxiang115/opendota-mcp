@@ -7,6 +7,9 @@ interface CacheEntry {
 
 const cache = new Map<string, CacheEntry>();
 
+/** Concurrent identical GETs share a single upstream request (constants are hit once per row otherwise). */
+const inflight = new Map<string, Promise<unknown>>();
+
 interface RateLimiterOptions {
   limitPerMinute: number;
 }
@@ -102,65 +105,75 @@ export async function apiGet<T>(path: string, options: RequestOptions = {}): Pro
     if (hit && hit.expiresAt > Date.now()) {
       return hit.data as T;
     }
+    const pending = inflight.get(cacheKey);
+    if (pending) return pending as Promise<T>;
   }
 
   const cost = options.rateCost ?? 1;
-  for (let i = 0; i < cost; i++) {
-    await limiter.acquire();
-  }
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30_000);
-  try {
-    const res = await fetch(url, {
-      method,
-      signal: controller.signal,
-      headers: { Accept: "application/json" },
-    });
-    if (res.status === 429) {
-      throw new OpenDotaApiError(
-        "OpenDota rate limit exceeded (HTTP 429). Wait a moment and retry, or configure OPENDOTA_API_KEY.",
-        429,
-        url,
-      );
+  const request = (async (): Promise<T> => {
+    for (let i = 0; i < cost; i++) {
+      await limiter.acquire();
     }
-    if (!res.ok && !options.allowErrorStatus) {
-      let detail = "";
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+    try {
+      const res = await fetch(url, {
+        method,
+        signal: controller.signal,
+        headers: { Accept: "application/json" },
+      });
+      if (res.status === 429) {
+        throw new OpenDotaApiError(
+          "OpenDota rate limit exceeded (HTTP 429). Wait a moment and retry, or configure OPENDOTA_API_KEY.",
+          429,
+          url,
+        );
+      }
+      if (!res.ok && !options.allowErrorStatus) {
+        let detail = "";
+        try {
+          detail = (await res.text()).slice(0, 300);
+        } catch {
+          /* ignore body read errors */
+        }
+        throw new OpenDotaApiError(
+          `OpenDota API error HTTP ${res.status} for ${path}${detail ? `: ${detail}` : ""}`,
+          res.status,
+          url,
+        );
+      }
+      const text = await res.text();
+      let data: unknown;
       try {
-        detail = (await res.text()).slice(0, 300);
+        data = text ? JSON.parse(text) : {};
       } catch {
-        /* ignore body read errors */
+        throw new OpenDotaApiError(`OpenDota returned invalid JSON for ${path}`, 502, url);
+      }
+      if (method === "GET") {
+        cache.set(cacheKey, { expiresAt: Date.now() + ttlMs(options.ttl), data });
+      }
+      return data as T;
+    } catch (err) {
+      if (err instanceof OpenDotaApiError) throw err;
+      if (err instanceof Error && err.name === "AbortError") {
+        throw new OpenDotaApiError(`OpenDota request timed out for ${path}`, 504, url);
       }
       throw new OpenDotaApiError(
-        `OpenDota API error HTTP ${res.status} for ${path}${detail ? `: ${detail}` : ""}`,
-        res.status,
+        `Network error calling OpenDota (${err instanceof Error ? err.message : String(err)})`,
+        502,
         url,
       );
+    } finally {
+      clearTimeout(timeout);
     }
-    const text = await res.text();
-    let data: unknown;
-    try {
-      data = text ? JSON.parse(text) : {};
-    } catch {
-      throw new OpenDotaApiError(`OpenDota returned invalid JSON for ${path}`, 502, url);
-    }
-    if (method === "GET") {
-      cache.set(cacheKey, { expiresAt: Date.now() + ttlMs(options.ttl), data });
-    }
-    return data as T;
-  } catch (err) {
-    if (err instanceof OpenDotaApiError) throw err;
-    if (err instanceof Error && err.name === "AbortError") {
-      throw new OpenDotaApiError(`OpenDota request timed out for ${path}`, 504, url);
-    }
-    throw new OpenDotaApiError(
-      `Network error calling OpenDota (${err instanceof Error ? err.message : String(err)})`,
-      502,
-      url,
-    );
-  } finally {
-    clearTimeout(timeout);
+  })();
+
+  if (method === "GET" && !options.noCache) {
+    inflight.set(cacheKey, request);
+    request.finally(() => inflight.delete(cacheKey)).catch(() => {});
   }
+  return request;
 }
 
 export function clearCache(): void {

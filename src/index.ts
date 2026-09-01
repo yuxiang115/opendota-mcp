@@ -10,6 +10,17 @@ import { proTools } from "./tools/pro.js";
 import type { ToolContext, ToolDef } from "./tools/registry.js";
 import { systemTools } from "./tools/system.js";
 import { teamTools } from "./tools/teams.js";
+import {
+  getAbilities,
+  getAbilityIds,
+  getGameModes,
+  getHeroes,
+  getItemIds,
+  getItems,
+  getLobbyTypes,
+  getPatches,
+  getRegions,
+} from "./constants.js";
 
 const PACKAGE_VERSION = "0.1.0";
 
@@ -51,6 +62,21 @@ for (const tool of allTools) {
 }
 
 async function main(): Promise<void> {
+  // Pre-warm the constants cache in the background so the first enriched
+  // response (match rows resolve heroes/modes per player) is fast.
+  for (const load of [
+    getHeroes,
+    getItems,
+    getItemIds,
+    getAbilities,
+    getAbilityIds,
+    getGameModes,
+    getLobbyTypes,
+    getRegions,
+    getPatches,
+  ]) {
+    load().catch(() => {});
+  }
   const transport = new StdioServerTransport();
   await server.connect(transport);
   // Log to stderr only; stdout is reserved for the MCP protocol.
