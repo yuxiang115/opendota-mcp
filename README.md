@@ -194,6 +194,7 @@ All player-match tools accept the standard OpenDota filters (`hero_id`, `game_mo
 | `get_hero_recent_matches` | Recent public matches on a hero. |
 | `get_hero_benchmarks` | Percentile benchmarks by rank bracket. |
 | `get_hero_item_popularity` | Items by game phase, named. |
+| `get_item_winrate_vs_hero` | **Item win rate against one specific enemy** (explorer cross-tab): with/without comparison per item, or the matchup's most common final-build items ranked. |
 | `get_hero_duration_performance` | Win rate by game-duration bin. |
 | `get_hero_players` | Top players of a hero. |
 | `get_hero_rankings` | Global hero leaderboard. |

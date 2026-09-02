@@ -41,6 +41,8 @@ get_match(match_id, include={picks_bans, graphs})
 
 **STRATZ 工具（配置 STRATZ_API_TOKEN 后可用，优先用）**：`get_matchups_by_rank`（分段克制）、`get_item_builds_by_rank`（分段出装+购买时间+胜率）、`get_talent_stats`（分段天赋胜率）、`get_lane_matchups`（对线期胜负）、`get_draft_advice`（针对敌方阵容的克制推荐+队友配合）、`get_hero_trend`（按版本的 8 档分段走势）。样本量比 OpenDota scenario 大几个数量级；回答分段相关的克制/出装/加点/对线/阵容问题一律优先用这组。bracket 参数取值 `herald_guardian`/`crusader_archon`/`legend_ancient`/`divine_immortal`（趋势工具支持 8 档细分的英文 medal 名）。
 
+**出装 × 特定对面英雄的交叉胜率**：`get_item_winrate_vs_hero`（OpenDota SQL，不分段但可指定对位）——传 `item` 得"出 vs 不出"对照组+delta_pp；不传 `item` 得该对位最常见的终局六格排行。回答"打 X 该不该出 Y"必用此工具（`get_item_builds_by_rank` 无对位过滤）。注意口径：终局六格（无购买顺序），相关非因果。
+
 ## 数据解读要点
 
 - `position_basis`: `position_est`（官方）> `official_algorithm` > `lane_farm_heuristic` > `farm_order_only`（仅经济序猜测，低置信）

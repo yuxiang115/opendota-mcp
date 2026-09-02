@@ -172,7 +172,7 @@ try {
   const client3 = new Client({ name: "integration-test", version: "0.0.0" });
   await client3.connect(transport3);
   const t3 = await client3.listTools();
-  ok("npx-launched server lists tools", t3.tools.length === 51, `got ${t3.tools.length}`);
+  ok("npx-launched server lists tools", t3.tools.length === 52, `got ${t3.tools.length}`);
   const r3 = await call(client3, "search_dota_entities", { query: "斧王", language: "schinese" });
   ok("npx-launched server serves localized queries", r3.matches?.some((m) => m.name === "斧王"), head(r3.matches?.[0]));
   await client3.close();
@@ -771,7 +771,7 @@ console.log("\n■ Regression R — STRATZ provider (bracket/position aggregates
     OPENDOTA_BUNDLE_PERSIST: "0",
   });
   const scTools = (await sc.listTools()).tools;
-  ok("STRATZ token → 57 tools incl. the 6 STRATZ tools", scTools.length === 57, `got ${scTools.length}`);
+  ok("STRATZ token → 57 tools incl. the 6 STRATZ tools", scTools.length === 58, `got ${scTools.length}`);
   for (const n of ["get_matchups_by_rank", "get_item_builds_by_rank", "get_talent_stats", "get_lane_matchups", "get_draft_advice", "get_hero_trend"]) {
     ok(`registers ${n}`, scTools.some((t) => t.name === n));
   }
@@ -864,6 +864,60 @@ console.log("\n■ Regression S — install-skill CLI copies the Agent Skill int
     "copied SKILL.md keeps its front-matter",
     readFileSync(pathMod.join(tmp, ".agents", "skills", "opendota", "SKILL.md"), "utf8").includes("name: opendota"),
   );
+}
+
+// ─────────────────────────────────────────────────────────────
+console.log("\n■ Regression T — item win rate vs a specific enemy (explorer cross-tab)");
+{
+  const mock = (await import("node:http")).createServer((req, res) => {
+    const p = req.url.replace(/^\/api/, "").split("?")[0];
+    res.setHeader("content-type", "application/json");
+    if (p === "/constants/patch") {
+      res.end(JSON.stringify([{ id: 60, name: "7.41" }]));
+      return;
+    }
+    if (p === "/explorer") {
+      const sql = decodeURIComponent(req.url.split("sql=")[1] ?? "").replaceAll("+", " ");
+      const rowsFor = () => {
+        if (sql.includes("UNNEST")) return [{ item_id: 116, games: 100, wins: 55 }];
+        if (sql.includes("NOT IN")) return [{ games: 200, wins: 90 }];
+        if (sql.includes(" IN (")) return [{ games: 100, wins: 60 }];
+        return [{ games: 300, wins: 150 }]; // baseline
+      };
+      res.end(JSON.stringify({ rows: rowsFor() }));
+      return;
+    }
+    res.end("{}");
+  });
+  await new Promise((r) => mock.listen(0, "127.0.0.1", r));
+  const port = mock.address().port;
+  const { mkdtempSync } = await import("node:fs");
+  const osMod = await import("node:os");
+  const pathMod = await import("node:path");
+  const freshTmp = mkdtempSync(pathMod.join(osMod.tmpdir(), "opendota-mcp-test-"));
+  const mc = await boot({
+    TMP: freshTmp,
+    TEMP: freshTmp,
+    TMPDIR: freshTmp,
+    OPENDOTA_BASE_URL: `http://127.0.0.1:${port}/api`,
+    OPENDOTA_BUNDLE_SEED: "1",
+    OPENDOTA_BUNDLE_PERSIST: "0",
+  });
+  const cmp = await call(mc, "get_item_winrate_vs_hero", { hero_id: 106, enemy_hero_id: 36, item: "Black King Bar" });
+  ok(
+    "with/without cross-tab computed",
+    cmp.with_item?.games === 100 && cmp.with_item?.win_rate_pct === 60 && cmp.without_item?.win_rate_pct === 45,
+    head(cmp),
+  );
+  ok("delta_pp = treatment - control", cmp.delta_pp === 15, String(cmp.delta_pp));
+  ok("item resolved by English display name", typeof cmp.item === "string" && cmp.item.length > 0, cmp.item);
+  ok("low_sample annotation on cells", cmp.with_item?.low_sample === true, JSON.stringify(cmp.with_item));
+  const lst = await call(mc, "get_item_winrate_vs_hero", { hero_id: 106, enemy_hero_id: 36 });
+  ok("list mode returns ranked items + baseline", lst.items?.[0]?.games === 100 && lst.baseline?.win_rate_pct === 50, head(lst.items?.[0]));
+  const miss = await call(mc, "get_item_winrate_vs_hero", { hero_id: 106, enemy_hero_id: 36, item: "zzz_no_such_item" });
+  ok("unknown item → error + hint", miss?.error != null && typeof miss.hint === "string", head(miss));
+  await mc.close();
+  mock.close();
 }
 
 // ─────────────────────────────────────────────────────────────

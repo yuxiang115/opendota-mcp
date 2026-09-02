@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { apiGet } from "../client.js";
+import { getItemIds, getItems } from "../constants.js";
 import { abilityRef, laneRoleLabel, rankTierToLabel } from "../mapping.js";
 import { itemInternalRef } from "../enrich.js";
 import { sampleFields } from "../stats.js";
@@ -10,6 +11,25 @@ const heroIdParam = z
   .int()
   .positive()
   .describe("Hero id (resolve names with search_dota_entities first).");
+
+/** Resolve an item reference (numeric id / internal name / English display name) to its item id. */
+async function resolveItemIdInput(input: number | string): Promise<number | undefined> {
+  if (typeof input === "number") return input;
+  const q = input.trim().toLowerCase();
+  const itemIds = await getItemIds();
+  const items = await getItems();
+  for (const [id, internal] of Object.entries(itemIds)) {
+    if (String(internal).toLowerCase() === q) return Number(id);
+  }
+  const dnameMatches = Object.entries(itemIds).filter(
+    ([, internal]) => String(items[String(internal)]?.dname ?? "").toLowerCase() === q,
+  );
+  if (dnameMatches.length === 1) return Number(dnameMatches[0][0]);
+  const partial = Object.entries(itemIds).filter(([, internal]) =>
+    String(items[String(internal)]?.dname ?? "").toLowerCase().includes(q),
+  );
+  return partial.length === 1 ? Number(partial[0][0]) : undefined;
+}
 
 function winRate(wins: number, games: number): number {
   return Math.round((wins / games) * 1000) / 10;
@@ -250,6 +270,116 @@ export const scenarioTools: ToolDef[] = [
         pairs_sampled: ranked.length,
         best_allies: ranked.slice(0, 5),
         worst_allies: ranked.slice(-5).reverse(),
+      };
+    },
+  },
+  {
+    name: "get_item_winrate_vs_hero",
+    description:
+      "Item win rate for a hero AGAINST one specific enemy hero — the cross-tab neither get_item_builds_by_rank " +
+      "(no enemy filter) nor get_hero_matchups (no items) can slice. With `item` it returns the with/without " +
+      "comparison: 'Ember with Spirit Vessel vs Necrophos: 52.8% (248 games) vs 46.2% without (+6.6pp)'. " +
+      "Without `item` it lists the hero's most common final-build items in this matchup with win rates. " +
+      "Based on the final six inventory slots of parsed public matches (OpenDota SQL) — no purchase timing; " +
+      "use get_item_builds_by_rank for timing/aggregated builds. Quote win rates with their ci95_pp.",
+    schema: {
+      hero_id: heroIdParam,
+      enemy_hero_id: z.number().int().positive().describe("The opposing hero id (resolve names with search_dota_entities first)."),
+      item: z
+        .union([z.number().int(), z.string()])
+        .optional()
+        .describe("Item id, internal name ('spirit_vessel') or English display name ('Spirit Vessel'). Omit to list common final-build items."),
+      days: z.number().int().min(30).max(720).optional().describe("Lookback window in days (default 180)."),
+      min_games: z.number().int().min(1).optional().describe("Min games per row when listing items (default 20)."),
+      limit: z.number().int().min(3).max(20).optional().describe("Max item rows when listing (default 10)."),
+      language: languageParam,
+    },
+    handler: async (args, ctx) => {
+      const lang = effectiveLanguage(args.language, ctx);
+      const days = args.days ?? 180;
+      const { heroRef, itemRef } = await import("../mapping.js");
+      const winsExpr = "CASE WHEN m.radiant_win = (a.player_slot < 128) THEN 1 ELSE 0 END";
+      const slotList = "a.item_0, a.item_1, a.item_2, a.item_3, a.item_4, a.item_5";
+      const timeFilter = `m.start_time > extract(epoch from now()) - ${days * 86400}`;
+
+      if (args.item != null) {
+        const itemId = await resolveItemIdInput(args.item);
+        if (itemId == null) {
+          return { error: `Unknown item: ${args.item}`, hint: "Resolve item names with search_dota_entities, or pass the numeric item id." };
+        }
+        const q = (withItem: boolean) =>
+          `SELECT count(*) AS games, sum(${winsExpr}) AS wins FROM player_matches a ` +
+          "JOIN player_matches b ON a.match_id = b.match_id AND (a.player_slot < 128) <> (b.player_slot < 128) " +
+          `JOIN matches m ON a.match_id = m.match_id WHERE a.hero_id = ${args.hero_id} AND b.hero_id = ${args.enemy_hero_id} ` +
+          `AND ${timeFilter} AND ${itemId} ${withItem ? "IN" : "NOT IN"} (${slotList})`;
+        const [wRes, woRes] = await Promise.all([
+          apiGet<{ rows?: { games: number; wins: number }[] }>("/explorer", { query: { sql: q(true) }, ttl: "listing", timeoutMs: 25_000 }),
+          apiGet<{ rows?: { games: number; wins: number }[] }>("/explorer", { query: { sql: q(false) }, ttl: "listing", timeoutMs: 25_000 }),
+        ]);
+        const w = wRes.rows?.[0] ?? { games: 0, wins: 0 };
+        const wo = woRes.rows?.[0] ?? { games: 0, wins: 0 };
+        const withWr = winRate(Number(w.wins), Number(w.games));
+        const withoutWr = winRate(Number(wo.wins), Number(wo.games));
+        const [hero, enemy, ref] = await Promise.all([
+          heroRef(args.hero_id, lang),
+          heroRef(args.enemy_hero_id, lang),
+          itemRef(itemId, lang),
+        ]);
+        return {
+          hero: hero?.name,
+          enemy: enemy?.name,
+          item: ref?.name ?? `item ${itemId}`,
+          days,
+          with_item: { games: Number(w.games), win_rate_pct: withWr, ...sampleFields(Number(w.games), Number(w.wins)) },
+          without_item: { games: Number(wo.games), win_rate_pct: withoutWr, ...sampleFields(Number(wo.games), Number(wo.wins)) },
+          ...(Number(w.games) > 0 && Number(wo.games) > 0 ? { delta_pp: Math.round((withWr - withoutWr) * 10) / 10 } : {}),
+          note: "Final six inventory slots of parsed public matches (correlation, not causation — better players may simply buy it more). Positive delta_pp means the item co-occurs with winning this matchup.",
+          source: "opendota-explorer",
+        };
+      }
+
+      const minGames = args.min_games ?? 20;
+      const listSql =
+        `SELECT u.item_id, count(*) AS games, sum(${winsExpr}) AS wins FROM player_matches a ` +
+        "JOIN player_matches b ON a.match_id = b.match_id AND (a.player_slot < 128) <> (b.player_slot < 128) " +
+        `JOIN matches m ON a.match_id = m.match_id CROSS JOIN UNNEST(ARRAY[${slotList}]) AS u(item_id) ` +
+        `WHERE a.hero_id = ${args.hero_id} AND b.hero_id = ${args.enemy_hero_id} AND u.item_id > 0 AND ${timeFilter} ` +
+        `GROUP BY 1 HAVING count(*) >= ${minGames} ORDER BY 2 DESC LIMIT ${args.limit ?? 10}`;
+      const [listRes, baseRes] = await Promise.all([
+        apiGet<{ rows?: { item_id: number; games: number; wins: number }[] }>("/explorer", { query: { sql: listSql }, ttl: "listing", timeoutMs: 25_000 }),
+        apiGet<{ rows?: { games: number; wins: number }[] }>("/explorer", {
+          query: {
+            sql:
+              `SELECT count(*) AS games, sum(${winsExpr}) AS wins FROM player_matches a ` +
+              "JOIN player_matches b ON a.match_id = b.match_id AND (a.player_slot < 128) <> (b.player_slot < 128) " +
+              `JOIN matches m ON a.match_id = m.match_id WHERE a.hero_id = ${args.hero_id} AND b.hero_id = ${args.enemy_hero_id} AND ${timeFilter}`,
+          },
+          ttl: "listing",
+          timeoutMs: 25_000,
+        }),
+      ]);
+      const base = baseRes.rows?.[0] ?? { games: 0, wins: 0 };
+      const rows = await Promise.all(
+        (listRes.rows ?? []).map(async (r) => {
+          const ref = await itemRef(Number(r.item_id), lang);
+          return {
+            item: ref?.name ?? `item ${r.item_id}`,
+            games: Number(r.games),
+            win_rate_pct: winRate(Number(r.wins), Number(r.games)),
+            ...sampleFields(Number(r.games), Number(r.wins)),
+          };
+        }),
+      );
+      const [hero, enemy] = await Promise.all([heroRef(args.hero_id, lang), heroRef(args.enemy_hero_id, lang)]);
+      return {
+        hero: hero?.name,
+        enemy: enemy?.name,
+        days,
+        min_games: minGames,
+        baseline: { games: Number(base.games), win_rate_pct: winRate(Number(base.wins), Number(base.games)) },
+        items: rows,
+        note: "Most common FINAL-build items in this matchup (final six slots, no purchase order). Compare each win_rate_pct against baseline; add a specific `item` for the with/without comparison.",
+        source: "opendota-explorer",
       };
     },
   },
