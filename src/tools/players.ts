@@ -304,6 +304,110 @@ export const playerTools: ToolDef[] = [
     },
   },
   {
+    name: "get_player_partnership",
+    description:
+      "How one player and one specific friend ACTUALLY perform together: games on the same side vs against " +
+      "each other, win rates both ways, each side's most-played heroes in those games with win rates (who " +
+      "picks what when partied), and when they last played together. Built by scanning their shared match " +
+      "history (uses included_account_id, then one request per shared match — cheap for duos, results cached). " +
+      "Start from get_player_peers for the friend list, then drill in with this.",
+    schema: {
+      account_id: accountId,
+      peer_account_id: z.number().int().positive().describe("The friend's account id (from get_player_peers)."),
+      limit_matches: z.number().int().min(5).max(60).optional().describe("Shared matches to scan (default 30)."),
+      min_hero_games: z.number().int().min(1).max(10).optional().describe("Min games for a hero row (default 2)."),
+      language: languageParam,
+    },
+    handler: async (args, ctx) => {
+      const lang = effectiveLanguage(args.language, ctx);
+      const history = await apiGet<{ match_id: number }[]>(`/players/${args.account_id}/matches`, {
+        query: { included_account_id: args.peer_account_id, limit: args.limit_matches ?? 30 },
+        ttl: "listing",
+      });
+      const matches = (
+        await Promise.all(
+          (history ?? []).slice(0, args.limit_matches ?? 30).map((h) =>
+            apiGet<Record<string, any>>(`/matches/${h.match_id}`, { ttl: "match", timeoutMs: 20_000 }).catch(() => null),
+          ),
+        )
+      ).filter(Boolean) as Record<string, any>[];
+
+      interface SideAgg {
+        games: number;
+        wins: number;
+        lastTime?: number;
+        myHeroes: Map<number, { games: number; wins: number }>;
+        theirHeroes: Map<number, { games: number; wins: number }>;
+      }
+      const emptyAgg = (): SideAgg => ({ games: 0, wins: 0, myHeroes: new Map(), theirHeroes: new Map() });
+      const together = emptyAgg();
+      const against = emptyAgg();
+      let peerName: string | undefined;
+
+      for (const m of matches) {
+        const players: Record<string, any>[] = m.players ?? [];
+        const me = players.find((p) => p.account_id === args.account_id);
+        const peer = players.find((p) => p.account_id === args.peer_account_id);
+        if (!me || !peer || m.radiant_win == null) continue;
+        if (peer.personaname) peerName = peer.personaname;
+        const sameSide = (me.player_slot < 128) === (peer.player_slot < 128);
+        const myWin = m.radiant_win === (me.player_slot < 128);
+        const agg = sameSide ? together : against;
+        agg.games += 1;
+        if (myWin) agg.wins += 1;
+        agg.lastTime = Math.max(agg.lastTime ?? 0, m.start_time ?? 0);
+        const mh = agg.myHeroes.get(me.hero_id) ?? { games: 0, wins: 0 };
+        mh.games += 1;
+        if (myWin) mh.wins += 1;
+        agg.myHeroes.set(me.hero_id, mh);
+        const th = agg.theirHeroes.get(peer.hero_id) ?? { games: 0, wins: 0 };
+        th.games += 1;
+        if (myWin) th.wins += 1;
+        agg.theirHeroes.set(peer.hero_id, th);
+      }
+
+      const minHeroGames = args.min_hero_games ?? 2;
+      const heroRows = async (agg: SideAgg, whose: "my" | "their") => {
+        const map = whose === "my" ? agg.myHeroes : agg.theirHeroes;
+        return Promise.all(
+          [...map.entries()]
+            .filter(([, h]) => h.games >= minHeroGames)
+            .sort((a, b) => b[1].games - a[1].games)
+            .slice(0, 5)
+            .map(async ([heroId, h]) => ({
+              hero: (await heroRef(heroId, lang))?.name ?? `hero ${heroId}`,
+              games: h.games,
+              win_rate_pct: Math.round((h.wins / h.games) * 1000) / 10,
+            })),
+        );
+      };
+      const sideCard = async (agg: SideAgg, label: string) => ({
+        label,
+        ...(agg.games > 0
+          ? {
+              games: agg.games,
+              wins: agg.wins,
+              win_rate_pct: Math.round((agg.wins / agg.games) * 1000) / 10,
+              ...sampleFields(agg.games, agg.wins),
+              ...(agg.lastTime ? { last_time: formatTimestamp(agg.lastTime) } : {}),
+              my_heroes_when_together: await heroRows(agg, "my"),
+              their_heroes: await heroRows(agg, "their"),
+            }
+          : { games: 0 }),
+      });
+
+      return {
+        account_id: args.account_id,
+        peer: peerName ?? `account ${args.peer_account_id}`,
+        peer_account_id: args.peer_account_id,
+        matches_scanned: matches.length,
+        together: await sideCard(together, "same side (party)"),
+        against_each_other: await sideCard(against, "opposite sides"),
+        note: "Win rates are the scanned player's perspective. Hero rows list what each of you played in these shared games — a pairing's real win rate needs games (check low_sample). Turbo included.",
+      };
+    },
+  },
+  {
     name: "get_player_pros",
     description: "Professional players this player has played with or against, with team affiliations.",
     schema: {

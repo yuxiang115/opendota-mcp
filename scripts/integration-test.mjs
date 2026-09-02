@@ -172,7 +172,7 @@ try {
   const client3 = new Client({ name: "integration-test", version: "0.0.0" });
   await client3.connect(transport3);
   const t3 = await client3.listTools();
-  ok("npx-launched server lists tools", t3.tools.length === 53, `got ${t3.tools.length}`);
+  ok("npx-launched server lists tools", t3.tools.length === 54, `got ${t3.tools.length}`);
   const r3 = await call(client3, "search_dota_entities", { query: "斧王", language: "schinese" });
   ok("npx-launched server serves localized queries", r3.matches?.some((m) => m.name === "斧王"), head(r3.matches?.[0]));
   await client3.close();
@@ -835,7 +835,7 @@ console.log("\n■ Regression R — STRATZ provider (bracket/position aggregates
     OPENDOTA_BUNDLE_PERSIST: "0",
   });
   const scTools = (await sc.listTools()).tools;
-  ok("STRATZ token → 63 tools incl. the 10 STRATZ tools + get_player_opponents", scTools.length === 63, `got ${scTools.length}`);
+  ok("STRATZ token → 64 tools", scTools.length === 64, `got ${scTools.length}`);
   for (const n of ["get_matchups_by_rank", "get_item_builds_by_rank", "get_talent_stats", "get_lane_matchups", "get_draft_advice", "get_skill_builds_by_rank", "get_hero_position_stats", "get_draft_composition", "get_match_coaching", "get_hero_trend"]) {
     ok(`registers ${n}`, scTools.some((t) => t.name === n));
   }
@@ -1027,13 +1027,13 @@ console.log("\n■ Regression T — item win rate vs a specific enemy (explorer 
 // ─────────────────────────────────────────────────────────────
 console.log("\n■ Regression U — social tools: duo peers + repeat opponents");
 {
-  const mkMatch = (id, radiantWin, foeHero) => ({
+  const mkMatch = (id, radiantWin, foeHero, together = false) => ({
     match_id: id,
     radiant_win: radiantWin,
     start_time: 1700000000 + id,
     players: [
       { account_id: 1, player_slot: 0, hero_id: 44 },
-      { account_id: 2, player_slot: 128, hero_id: foeHero, personaname: "Foe", rank_tier: 80 },
+      { account_id: 2, player_slot: together ? 1 : 128, hero_id: foeHero, personaname: "Foe", rank_tier: 80 },
     ],
   });
   const mock = (await import("node:http")).createServer((req, res) => {
@@ -1042,9 +1042,10 @@ console.log("\n■ Regression U — social tools: duo peers + repeat opponents")
     if (p === "/constants/patch") res.end(JSON.stringify([{ id: 60, name: "7.41" }]));
     else if (p === "/players/1/peers")
       res.end(JSON.stringify([{ account_id: 9, personaname: "Pal", games: 10, win: 6, with_games: 10, with_win: 6, with_gpm_sum: 5000, with_xpm_sum: 6000, last_played: 1700000000 }]));
-    else if (p === "/players/1/matches") res.end(JSON.stringify([{ match_id: 101 }, { match_id: 102 }]));
+    else if (p === "/players/1/matches") res.end(JSON.stringify([{ match_id: 101 }, { match_id: 102 }, { match_id: 103 }]));
     else if (p === "/matches/101") res.end(JSON.stringify(mkMatch(101, true, 2)));
     else if (p === "/matches/102") res.end(JSON.stringify(mkMatch(102, false, 3)));
+    else if (p === "/matches/103") res.end(JSON.stringify(mkMatch(103, true, 3, true)));
     else res.end("{}");
   });
   await new Promise((r) => mock.listen(0, "127.0.0.1", r));
@@ -1075,6 +1076,12 @@ console.log("\n■ Regression U — social tools: duo peers + repeat opponents")
     "opponents: their hero list vs me resolved",
     foe?.their_heroes_vs_me?.length === 2 && typeof foe?.their_heroes_vs_me?.[0]?.hero === "string",
     JSON.stringify(foe?.their_heroes_vs_me),
+  );
+  const partner = await call(mc, "get_player_partnership", { account_id: 1, peer_account_id: 2, limit_matches: 10, min_hero_games: 1 });
+  ok(
+    "partnership: together vs against split",
+    partner.together?.games === 1 && partner.together?.win_rate_pct === 100 && partner.against_each_other?.games === 2 && partner.against_each_other?.win_rate_pct === 50,
+    JSON.stringify({ t: partner.together?.games, a: partner.against_each_other?.games }),
   );
   await mc.close();
   mock.close();
