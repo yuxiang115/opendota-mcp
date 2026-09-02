@@ -269,6 +269,34 @@ function ttlMs(ttl?: keyof typeof CACHE_TTL): number {
   return CACHE_TTL[ttl ?? "default"];
 }
 
+/** Memory keeps a bounded working set: long-lived match entries would otherwise grow unbounded. */
+const MEMORY_CACHE_LIMIT = 800;
+
+function cacheSet(key: string, entry: CacheEntry): void {
+  cache.set(key, entry);
+  if (cache.size > MEMORY_CACHE_LIMIT) {
+    // Map iterates in insertion order — drop the oldest ~25% as a cheap LRU-ish eviction.
+    const drop = cache.size - Math.floor(MEMORY_CACHE_LIMIT * 0.75);
+    let i = 0;
+    for (const k of cache.keys()) {
+      if (i++ >= drop) break;
+      cache.delete(k);
+    }
+  }
+}
+
+/**
+ * Matches are immutable once parsed (only parse→re-parse changes them), so a
+ * fetched record with a parse version gets the long TTL; unparsed ones keep
+ * the short window until the parse lands and a later fetch upgrades the entry.
+ */
+function entryTtlMs(ttl: keyof typeof CACHE_TTL | undefined, data: unknown): number {
+  if (ttl === "match" && data != null && typeof data === "object" && "version" in (data as Record<string, unknown>)) {
+    return CACHE_TTL.matchParsed;
+  }
+  return ttlMs(ttl);
+}
+
 /** Core request helper: cache + rate limit + error normalization. */
 export async function apiGet<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const method = options.method ?? "GET";
@@ -292,6 +320,13 @@ export async function apiGet<T>(path: string, options: RequestOptions = {}): Pro
       const stale = hit ?? readDiskCacheAny(cacheKey);
       if (stale) {
         return stale.data as T;
+      }
+    }
+    if (options.ttl === "match") {
+      const diskHit = readDiskCache(cacheKey);
+      if (diskHit) {
+        cacheSet(cacheKey, diskHit);
+        return diskHit.data as T;
       }
     }
     const pending = inflight.get(cacheKey);
@@ -351,14 +386,18 @@ export async function apiGet<T>(path: string, options: RequestOptions = {}): Pro
         cache: options.forceRefresh ? "refresh" : options.noCache ? "bypass" : "miss",
       });
       if (method === "GET") {
-        const entry: CacheEntry = { expiresAt: Date.now() + ttlMs(options.ttl), data };
-        cache.set(cacheKey, entry);
+        const entry: CacheEntry = { expiresAt: Date.now() + entryTtlMs(options.ttl, data), data };
+        cacheSet(cacheKey, entry);
         if (options.ttl === "constants") {
           writeDiskCache(cacheKey, entry);
           // Self-updating bundle: a successful network fetch of a constants
           // resource is written back into the shipped bundle so the NEXT cold
           // start seeds fresh data (best-effort; read-only installs just skip).
           maybePersistToBundle(path, data);
+        } else if (options.ttl === "match") {
+          // Parsed matches are immutable — persist them so restarts and the
+          // 30-match scans (opponents/partnership) cost zero upstream calls.
+          writeDiskCache(cacheKey, entry);
         }
       }
       return data as T;

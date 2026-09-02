@@ -52,7 +52,7 @@ export const scenarioTools: ToolDef[] = [
       const lang = effectiveLanguage(args.language, ctx);
       const rows = await apiGet<{ hero_id: number; item: string; time: number; games: number; wins: number }[]>(
         "/scenarios/itemTimings",
-        { query: { hero_id: args.hero_id }, ttl: "constants" },
+        { query: { hero_id: args.hero_id }, ttl: "aggregate" },
       );
       const minGames = args.min_games ?? 10;
       const byBucket = new Map<string, { item: string; name: string; games: number; wins: number }[]>();
@@ -98,7 +98,7 @@ export const scenarioTools: ToolDef[] = [
     handler: async (args) => {
       const rows = await apiGet<{ hero_id: number; lane_role: number; time: number; games: number; wins: number }[]>(
         "/scenarios/laneRoles",
-        { query: { hero_id: args.hero_id }, ttl: "constants" },
+        { query: { hero_id: args.hero_id }, ttl: "aggregate" },
       );
       const minGames = args.min_games ?? 5;
       return {
@@ -189,7 +189,7 @@ export const scenarioTools: ToolDef[] = [
         `GROUP BY 1 ORDER BY games DESC LIMIT 10`;
       const res = await apiGet<{ rows?: { build: number[]; games: number; wins: number }[] }>(
         "/explorer",
-        { query: { sql }, ttl: "listing", timeoutMs: 20_000 },
+        { query: { sql }, ttl: "aggregate", timeoutMs: 20_000 },
       );
       const rows = res.rows ?? [];
       const totalGames = rows.reduce((s, r) => s + Number(r.games), 0);
@@ -239,7 +239,7 @@ export const scenarioTools: ToolDef[] = [
         `AND m.start_time > extract(epoch from now()) - ${days * 86400}`;
       if (args.ally_hero_id != null) {
         const sql = `SELECT count(*) AS games, sum(CASE WHEN m.radiant_win = (a.player_slot < 128) THEN 1 ELSE 0 END) AS wins ${base} AND b.hero_id = ${args.ally_hero_id}`;
-        const res = await apiGet<{ rows?: { games: number; wins: number }[] }>("/explorer", { query: { sql }, ttl: "listing", timeoutMs: 20_000 });
+        const res = await apiGet<{ rows?: { games: number; wins: number }[] }>("/explorer", { query: { sql }, ttl: "aggregate", timeoutMs: 20_000 });
         const r = res.rows?.[0];
         const games = Number(r?.games ?? 0);
         const [h1, h2] = await Promise.all([heroRefLazy(args.hero_id, lang), heroRefLazy(args.ally_hero_id, lang)]);
@@ -254,7 +254,7 @@ export const scenarioTools: ToolDef[] = [
       const sql =
         `SELECT b.hero_id AS ally, count(*) AS games, sum(CASE WHEN m.radiant_win = (a.player_slot < 128) THEN 1 ELSE 0 END) AS wins ` +
         `${base} GROUP BY 1 HAVING count(*) >= ${minGames} ORDER BY 2 DESC LIMIT 300`;
-      const res = await apiGet<{ rows?: { ally: number; games: number; wins: number }[] }>("/explorer", { query: { sql }, ttl: "listing", timeoutMs: 25_000 });
+      const res = await apiGet<{ rows?: { ally: number; games: number; wins: number }[] }>("/explorer", { query: { sql }, ttl: "aggregate", timeoutMs: 25_000 });
       const rows = (res.rows ?? []).map((r) => ({
         ally: Number(r.ally),
         games: Number(r.games),
@@ -313,8 +313,8 @@ export const scenarioTools: ToolDef[] = [
           `JOIN matches m ON a.match_id = m.match_id WHERE a.hero_id = ${args.hero_id} AND b.hero_id = ${args.enemy_hero_id} ` +
           `AND ${timeFilter} AND ${itemId} ${withItem ? "IN" : "NOT IN"} (${slotList})`;
         const [wRes, woRes] = await Promise.all([
-          apiGet<{ rows?: { games: number; wins: number }[] }>("/explorer", { query: { sql: q(true) }, ttl: "listing", timeoutMs: 25_000 }),
-          apiGet<{ rows?: { games: number; wins: number }[] }>("/explorer", { query: { sql: q(false) }, ttl: "listing", timeoutMs: 25_000 }),
+          apiGet<{ rows?: { games: number; wins: number }[] }>("/explorer", { query: { sql: q(true) }, ttl: "aggregate", timeoutMs: 25_000 }),
+          apiGet<{ rows?: { games: number; wins: number }[] }>("/explorer", { query: { sql: q(false) }, ttl: "aggregate", timeoutMs: 25_000 }),
         ]);
         const w = wRes.rows?.[0] ?? { games: 0, wins: 0 };
         const wo = woRes.rows?.[0] ?? { games: 0, wins: 0 };
@@ -346,7 +346,7 @@ export const scenarioTools: ToolDef[] = [
         `WHERE a.hero_id = ${args.hero_id} AND b.hero_id = ${args.enemy_hero_id} AND u.item_id > 0 AND ${timeFilter} ` +
         `GROUP BY 1 HAVING count(*) >= ${minGames} ORDER BY 2 DESC LIMIT ${args.limit ?? 10}`;
       const [listRes, baseRes] = await Promise.all([
-        apiGet<{ rows?: { item_id: number; games: number; wins: number }[] }>("/explorer", { query: { sql: listSql }, ttl: "listing", timeoutMs: 25_000 }),
+        apiGet<{ rows?: { item_id: number; games: number; wins: number }[] }>("/explorer", { query: { sql: listSql }, ttl: "aggregate", timeoutMs: 25_000 }),
         apiGet<{ rows?: { games: number; wins: number }[] }>("/explorer", {
           query: {
             sql:
@@ -354,7 +354,7 @@ export const scenarioTools: ToolDef[] = [
               "JOIN player_matches b ON a.match_id = b.match_id AND (a.player_slot < 128) <> (b.player_slot < 128) " +
               `JOIN matches m ON a.match_id = m.match_id WHERE a.hero_id = ${args.hero_id} AND b.hero_id = ${args.enemy_hero_id} AND ${timeFilter}`,
           },
-          ttl: "listing",
+          ttl: "aggregate",
           timeoutMs: 25_000,
         }),
       ]);
@@ -416,7 +416,7 @@ export const scenarioTools: ToolDef[] = [
     handler: async (args) => {
       const res = await apiGet<Record<string, any>>("/explorer", {
         query: { sql: args.sql },
-        ttl: "listing",
+        ttl: "aggregate",
         timeoutMs: 20_000,
       });
       if (res?.error) return { error: String(res.error), hint: "Check table/column names via the /schema endpoint." };

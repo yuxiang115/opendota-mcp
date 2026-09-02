@@ -13,7 +13,7 @@ export const teamTools: ToolDef[] = [
       page: z.number().int().min(0).optional().describe("Zero-indexed page; each page has up to 1000 teams."),
     },
     handler: async (args) => {
-      return apiGet("/teams", { query: { page: args.page }, ttl: "listing" });
+      return apiGet("/teams", { query: { page: args.page }, ttl: "player" });
     },
   },
   {
@@ -23,7 +23,7 @@ export const teamTools: ToolDef[] = [
       team_id: teamIdParam,
     },
     handler: async (args) => {
-      return apiGet(`/teams/${args.team_id}`, { ttl: "listing" });
+      return apiGet(`/teams/${args.team_id}`, { ttl: "player" });
     },
   },
   {
@@ -35,7 +35,7 @@ export const teamTools: ToolDef[] = [
       limit: z.number().int().min(1).max(100).optional().describe("Max matches to return."),
     },
     handler: async (args, ctx) => {
-      const rows = await apiGet<Record<string, any>[]>(`/teams/${args.team_id}/matches`, { ttl: "listing" });
+      const rows = await apiGet<Record<string, any>[]>(`/teams/${args.team_id}/matches`, { ttl: "player" });
       const lang = effectiveLanguage(args.language, ctx);
       const limited = args.limit ? rows.slice(0, args.limit) : rows;
       return Promise.all(limited.map((row) => enrichPlayerMatchRow(row, lang)));
@@ -48,7 +48,7 @@ export const teamTools: ToolDef[] = [
       team_id: teamIdParam,
     },
     handler: async (args) => {
-      return apiGet(`/teams/${args.team_id}/players`, { ttl: "listing" });
+      return apiGet(`/teams/${args.team_id}/players`, { ttl: "player" });
     },
   },
   {
@@ -59,7 +59,7 @@ export const teamTools: ToolDef[] = [
       language: languageParam,
     },
     handler: async (args, ctx) => {
-      const rows = await apiGet<Record<string, any>[]>(`/teams/${args.team_id}/heroes`, { ttl: "listing" });
+      const rows = await apiGet<Record<string, any>[]>(`/teams/${args.team_id}/heroes`, { ttl: "player" });
       const lang = effectiveLanguage(args.language, ctx);
       return Promise.all(
         rows.map(async (row) => {

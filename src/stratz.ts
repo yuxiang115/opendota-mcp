@@ -163,7 +163,7 @@ export async function stratzQuery<T = unknown>(label: string, query: string, opt
     clearTimeout(timeout);
   }
 
-  const entry: CacheEntry = { v: DISK_VERSION, expiresAt: Date.now() + (options.ttlMs ?? 30 * 60_000), data };
+  const entry: CacheEntry = { v: DISK_VERSION, expiresAt: Date.now() + (options.ttlMs ?? 4 * 60 * 60_000), data };
   cache.set(cacheKey, entry);
   writeDisk(cacheKey, entry);
   return data as T;

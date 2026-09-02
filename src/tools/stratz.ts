@@ -1017,7 +1017,7 @@ const rawStratzTools: ToolDef[] = [
         stratzQuery<{ constants: { gameVersions: { id: number; name: string }[] } }>(
           "gameVersions",
           `query { constants { gameVersions { id name } } }`,
-          { ttlMs: 60 * 60_000 },
+          { ttlMs: 24 * 60 * 60_000 },
         ),
       ]);
       const versionName = new Map((versionsResp?.constants?.gameVersions ?? []).map((v) => [v.id, v.name]));

@@ -21,7 +21,7 @@ export const proTools: ToolDef[] = [
     handler: async (args, ctx) => {
       const rows = await apiGet<Record<string, any>[]>("/proMatches", {
         query: { less_than_match_id: args.less_than_match_id },
-        ttl: "listing",
+        ttl: "default",
         noCache: true,
       });
       const lang = effectiveLanguage(args.language, ctx);
@@ -40,7 +40,7 @@ export const proTools: ToolDef[] = [
       offset: z.number().int().min(0).optional().describe("Skip this many players before the page (pagination)."),
     },
     handler: async (args) => {
-      const rows = await apiGet<Record<string, any>[]>("/proPlayers", { ttl: "listing" });
+      const rows = await apiGet<Record<string, any>[]>("/proPlayers", { ttl: "player" });
       const cap = args.limit ?? 100;
       const start = args.offset ?? 0;
       // The API mixes Unix-seconds numbers and ISO date strings in last_match_time.
@@ -72,7 +72,7 @@ export const proTools: ToolDef[] = [
     description: "All tracked leagues/tournaments with ids and tiers (professional, premium, ...).",
     schema: {},
     handler: async () => {
-      return apiGet("/leagues", { ttl: "listing" });
+      return apiGet("/leagues", { ttl: "player" });
     },
   },
   {
@@ -83,7 +83,7 @@ export const proTools: ToolDef[] = [
       language: languageParam,
     },
     handler: async (args, ctx) => {
-      const rows = await apiGet<Record<string, any>[]>(`/leagues/${args.league_id}/matches`, { ttl: "match" });
+      const rows = await apiGet<Record<string, any>[]>(`/leagues/${args.league_id}/matches`, { ttl: "player" });
       const lang = effectiveLanguage(args.language, ctx);
       return Promise.all(rows.map((row) => enrichPlayerMatchRow(row, lang)));
     },

@@ -237,8 +237,8 @@ console.log("\n■ Regression H — constants stale-while-revalidate (1h TTL by 
     const path = req.url.replace(/^\/api/, "").split("?")[0];
     hits[path] = (hits[path] ?? 0) + 1;
     res.setHeader("content-type", "application/json");
-    if (path === "/heroStats") {
-      res.end(JSON.stringify([{ hero_id: 1, localized_name: `Anti-Mage v${heroPayloadVersion}`, primary_attr: "agi", attack_type: "Melee", roles: [] }]));
+    if (path === "/constants/heroes") {
+      res.end(JSON.stringify({ 1: { id: 1, localized_name: `Anti-Mage v${heroPayloadVersion}` } }));
     } else {
       res.end("{}");
     }
@@ -247,20 +247,20 @@ console.log("\n■ Regression H — constants stale-while-revalidate (1h TTL by 
   const port = mock.address().port;
   // TTL 0.02 min = 1.2s so expiry happens within the test
   const swr = await boot({ OPENDOTA_BASE_URL: `http://127.0.0.1:${port}/api`, OPENDOTA_CONSTANTS_TTL_MINUTES: "0.02", OPENDOTA_RATE_LIMIT: "1000" });
-  const first = await call(swr, "get_heroes", {});
-  ok("first fetch returns v1", first[0]?.name_en === "Anti-Mage v1", first[0]?.name_en);
-  const afterFirst = hits["/heroStats"];
+  const first = await call(swr, "get_constants", { resource: "heroes" });
+  ok("first fetch returns v1", first?.["1"]?.localized_name === "Anti-Mage v1", JSON.stringify(first?.["1"]));
+  const afterFirst = hits["/constants/heroes"];
   await new Promise((r) => setTimeout(r, 1500)); // let the cache expire
   heroPayloadVersion = 2;
   const t0 = Date.now();
-  const stale = await call(swr, "get_heroes", {});
+  const stale = await call(swr, "get_constants", { resource: "heroes" });
   const ms = Date.now() - t0;
   ok("expired entry served instantly (stale-while-revalidate)", ms < 250, `${ms}ms`);
-  ok("stale response is still coherent data", stale[0]?.name_en === "Anti-Mage v1", stale[0]?.name_en);
+  ok("stale response is still coherent data", stale?.["1"]?.localized_name === "Anti-Mage v1", JSON.stringify(stale?.["1"]));
   await new Promise((r) => setTimeout(r, 1500)); // background refresh completes
-  ok("background refresh hit upstream exactly once more", hits["/heroStats"] === afterFirst + 1, `${hits["/heroStats"]} vs ${afterFirst}+1`);
-  const fresh = await call(swr, "get_heroes", {});
-  ok("next call sees refreshed data", fresh[0]?.name_en === "Anti-Mage v2", fresh[0]?.name_en);
+  ok("background refresh hit upstream exactly once more", hits["/constants/heroes"] === afterFirst + 1, `${hits["/constants/heroes"]} vs ${afterFirst}+1`);
+  const fresh = await call(swr, "get_constants", { resource: "heroes" });
+  ok("next call sees refreshed data", fresh?.["1"]?.localized_name === "Anti-Mage v2", JSON.stringify(fresh?.["1"]));
   await swr.close();
   mock.close();
 }
@@ -533,12 +533,21 @@ console.log("\n■ Regression N — bundle seed + patch probe + negative-lookup 
   });
   await new Promise((r) => mock.listen(0, "127.0.0.1", r));
   const port = mock.address().port;
+  // Per-scenario isolated tmpdir: match entries now persist to disk (parsed = 7 days),
+  // so scenarios on the same mock port must not see each other's disk cache.
+  const { mkdtempSync } = await import("node:fs");
+  const osMod = await import("node:os");
+  const pathMod = await import("node:path");
+  const scenarioTmp = () => {
+    const t = mkdtempSync(pathMod.join(osMod.tmpdir(), "opendota-mcp-test-"));
+    return { TMP: t, TEMP: t, TMPDIR: t };
+  };
   const base = { OPENDOTA_BASE_URL: `http://127.0.0.1:${port}/api`, OPENDOTA_BUNDLE_SEED: "1", OPENDOTA_BUNDLE_PERSIST: "0" };
 
   // Scenario 1: probe matches bundled patch id -> cold boot + full get_match = exactly 2 requests
   {
     await clearProbe();
-    const mc = await boot(base);
+    const mc = await boot({ ...base, ...scenarioTmp() });
     await new Promise((r) => setTimeout(r, 500));
     hits.length = 0;
     const m = await call(mc, "get_match", { match_id: 474747, include: { breakdown: true, chat: true } });
@@ -551,7 +560,7 @@ console.log("\n■ Regression N — bundle seed + patch probe + negative-lookup 
   {
     patchResponse = [{ id: 99, name: "9.99" }];
     await clearProbe();
-    const mc = await boot(base);
+    const mc = await boot({ ...base, ...scenarioTmp() });
     await new Promise((r) => setTimeout(r, 800));
     const refreshed = hits.filter((h) => h.startsWith("/constants/") && h !== "/constants/patch");
     ok("stale bundle: probe triggers background refresh of bundled constants", refreshed.length >= 14, `${refreshed.length} refreshes: ${[...new Set(refreshed)].slice(0, 5).join(",")}…`);
@@ -562,13 +571,13 @@ console.log("\n■ Regression N — bundle seed + patch probe + negative-lookup 
   // Scenario 3: unknown hero id -> negative-lookup heal refreshes heroes once
   {
     await clearProbe();
-    const mc = await boot(base);
+    const mc = await boot({ ...base, ...scenarioTmp() });
     await new Promise((r) => setTimeout(r, 500));
     hits.length = 0;
     matchResponse = mkMatch(9999); // hero id absent from every table
     await call(mc, "get_match", { match_id: 474747 });
     await new Promise((r) => setTimeout(r, 400));
-    ok("unknown hero id heals /constants/heroes exactly once", hits.filter((h) => h === "/constants/heroes").length === 1, hits.join(","));
+    ok("unknown hero id heals /constants/heroes exactly once", hits.filter((h) => h === "/constants/heroes").length === 1, JSON.stringify(hits));
     matchResponse = mkMatch(1);
     await mc.close();
   }
@@ -1084,6 +1093,56 @@ console.log("\n■ Regression U — social tools: duo peers + repeat opponents")
     JSON.stringify({ t: partner.together?.games, a: partner.against_each_other?.games }),
   );
   await mc.close();
+  mock.close();
+}
+
+// ─────────────────────────────────────────────────────────────
+console.log("\n■ Regression W — tiered cache: parsed matches are long-cached and disk-persistent");
+{
+  const hitCount = { 777: 0, 778: 0 };
+  const mkMatch = (id, parsed) => ({
+    match_id: id,
+    ...(parsed ? { version: 246 } : {}),
+    radiant_win: true,
+    duration: 2000,
+    start_time: 1700000000,
+    players: [
+      { player_slot: 0, account_id: 1, hero_id: 1, kills: 2, deaths: 1, assists: 3, gold_per_min: 400, xp_per_min: 400, last_hits: 100 },
+      { player_slot: 128, account_id: 2, hero_id: 2, kills: 1, deaths: 2, assists: 3, gold_per_min: 380, xp_per_min: 380, last_hits: 90 },
+    ],
+  });
+  const mock = (await import("node:http")).createServer((req, res) => {
+    const p = req.url.replace(/^\/api/, "").split("?")[0];
+    res.setHeader("content-type", "application/json");
+    if (p === "/constants/patch") res.end(JSON.stringify([{ id: 60, name: "7.41" }]));
+    else if (p === "/matches/777") { hitCount[777]++; res.end(JSON.stringify(mkMatch(777, true))); }
+    else if (p === "/matches/778") { hitCount[778]++; res.end(JSON.stringify(mkMatch(778, false))); }
+    else res.end("{}");
+  });
+  await new Promise((r) => mock.listen(0, "127.0.0.1", r));
+  const port = mock.address().port;
+  const { mkdtempSync } = await import("node:fs");
+  const osMod = await import("node:os");
+  const pathMod = await import("node:path");
+  const freshTmp = mkdtempSync(pathMod.join(osMod.tmpdir(), "opendota-mcp-test-"));
+  const env = {
+    TMP: freshTmp, TEMP: freshTmp, TMPDIR: freshTmp,
+    OPENDOTA_BASE_URL: `http://127.0.0.1:${port}/api`,
+    OPENDOTA_BUNDLE_SEED: "1",
+    OPENDOTA_BUNDLE_PERSIST: "0",
+  };
+  const a = await boot(env);
+  await call(a, "get_match", { match_id: 777 });
+  await call(a, "get_match", { match_id: 777 });
+  ok("parsed match: second read served from memory (1 upstream)", hitCount[777] === 1, String(hitCount[777]));
+  await call(a, "get_match", { match_id: 778 });
+  await call(a, "get_match", { match_id: 778 });
+  ok("unparsed match: cached within its short window too", hitCount[778] === 1, String(hitCount[778]));
+  await a.close();
+  const b = await boot(env);
+  const m = await call(b, "get_match", { match_id: 777 });
+  ok("parsed match survives a process restart via disk cache (still 1 upstream)", hitCount[777] === 1 && m.match_id === 777, String(hitCount[777]));
+  await b.close();
   mock.close();
 }
 

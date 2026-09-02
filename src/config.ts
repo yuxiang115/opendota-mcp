@@ -43,16 +43,36 @@ export const RATE_LIMIT_PER_MINUTE = Number(
   process.env.OPENDOTA_RATE_LIMIT ?? (OPENDEOTA_API_KEY ? 1200 : 55),
 );
 
-/** Cache TTLs in milliseconds. */
+/** Cache TTLs in milliseconds. Each tier matches how fast that endpoint class changes. */
 export const CACHE_TTL = {
   /**
    * Game constants (heroes/items/abilities/enums). Refreshed at most once per hour
    * via stale-while-revalidate; tune with OPENDOTA_CONSTANTS_TTL_MINUTES.
    */
   constants: Number(process.env.OPENDOTA_CONSTANTS_TTL_MINUTES ?? 60) * 60 * 1000,
-  /** Match records: immutable once parsed, but allow refresh window. */
+  /**
+   * PARSED match records: replay analysis is immutable (only a rare re-parse
+   * changes it), so these cache essentially forever. Tune with
+   * OPENDOTA_PARSED_MATCH_TTL_HOURS (default 168 = one week).
+   */
+  matchParsed: Number(process.env.OPENDOTA_PARSED_MATCH_TTL_HOURS ?? 168) * 60 * 60 * 1000,
+  /**
+   * UNPARSED match records: the parse can land at any moment, so keep the
+   * short window. Once a fetch returns a parsed record the entry upgrades to
+   * matchParsed automatically.
+   */
   match: 10 * 60 * 1000,
-  /** Rapidly changing listings. */
+  /**
+   * Slow player/profile endpoints (peers, hero pool, totals, ratings...):
+   * these accumulate over days.
+   */
+  player: 60 * 60 * 1000,
+  /**
+   * Aggregated statistics (heroStats, matchups, scenario tables, explorer SQL
+   * over a 180-day window): they move on a daily cadence.
+   */
+  aggregate: 6 * 60 * 60 * 1000,
+  /** Rapidly changing listings (recent matches, live feeds). */
   listing: 60 * 1000,
   /** Default TTL for uncategorized GETs. */
   default: 5 * 60 * 1000,

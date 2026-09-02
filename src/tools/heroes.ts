@@ -23,7 +23,7 @@ export const heroTools: ToolDef[] = [
     },
     handler: async (args, ctx) => {
       const lang = effectiveLanguage(args.language, ctx);
-      const heroes = await apiGet<Record<string, any>[]>("/heroStats", { ttl: "constants" });
+      const heroes = await apiGet<Record<string, any>[]>("/heroStats", { ttl: "aggregate" });
       return heroes.map((h) => ({
         id: h.hero_id ?? h.id,
         name: heroDisplayName(h, lang),
@@ -53,7 +53,7 @@ export const heroTools: ToolDef[] = [
       raw: z.boolean().optional().describe("Include raw per-bracket pick/win counters (large)."),
     },
     handler: async (args, ctx) => {
-      const rows = await apiGet<Record<string, any>[]>("/heroStats", { ttl: "constants" });
+      const rows = await apiGet<Record<string, any>[]>("/heroStats", { ttl: "aggregate" });
       const lang = effectiveLanguage(args.language, ctx);
       const enriched = await Promise.all(rows.map((row) => enrichHeroStatRow(row, lang, args.raw === true)));
       const sorted = enriched.sort((a, b) => (b.overall_pick as number ?? 0) - (a.overall_pick as number ?? 0));
@@ -88,7 +88,7 @@ export const heroTools: ToolDef[] = [
       limit: z.number().int().min(1).max(100).optional().describe("Max matches to return."),
     },
     handler: async (args, ctx) => {
-      const rows = await apiGet<Record<string, any>[]>(`/heroes/${args.hero_id}/matches`, { ttl: "listing" });
+      const rows = await apiGet<Record<string, any>[]>(`/heroes/${args.hero_id}/matches`, { ttl: "aggregate" });
       const lang = effectiveLanguage(args.language, ctx);
       const limited = args.limit ? rows.slice(0, args.limit) : rows;
       return Promise.all(limited.map((row) => enrichPlayerMatchRow(row, lang)));
@@ -114,7 +114,7 @@ export const heroTools: ToolDef[] = [
       const lang = effectiveLanguage(args.language, ctx);
       const data = await apiGet<Record<string, any>>("/benchmarks", {
         query: { hero_id: args.hero_id, bracket: args.bracket },
-        ttl: "constants",
+        ttl: "aggregate",
       });
       const hero = await heroRef(args.hero_id, lang);
       return {
@@ -139,7 +139,7 @@ export const heroTools: ToolDef[] = [
     },
     handler: async (args, ctx) => {
       const data = await apiGet<Record<string, Record<string, number>>>(`/heroes/${args.hero_id}/itemPopularity`, {
-        ttl: "constants",
+        ttl: "aggregate",
       });
       const lang = effectiveLanguage(args.language, ctx);
       return enrichItemPopularity(data, lang);
@@ -154,7 +154,7 @@ export const heroTools: ToolDef[] = [
       hero_id: heroIdParam,
     },
     handler: async (args) => {
-      const rows = await apiGet<Record<string, any>[]>(`/heroes/${args.hero_id}/durations`, { ttl: "constants" });
+      const rows = await apiGet<Record<string, any>[]>(`/heroes/${args.hero_id}/durations`, { ttl: "aggregate" });
       return rows.map((row) => {
         const games = (row.games_played ?? 0) as number;
         return {
@@ -173,7 +173,7 @@ export const heroTools: ToolDef[] = [
       hero_id: heroIdParam,
     },
     handler: async (args) => {
-      const rows = await apiGet<Record<string, any>[]>(`/heroes/${args.hero_id}/players`, { ttl: "listing" });
+      const rows = await apiGet<Record<string, any>[]>(`/heroes/${args.hero_id}/players`, { ttl: "aggregate" });
       return rows.slice(0, 100).map((row) => {
         const games = (row.games_played ?? 0) as number;
         return {
@@ -197,7 +197,7 @@ export const heroTools: ToolDef[] = [
       const lang = effectiveLanguage(args.language, ctx);
       const rows = await apiGet<Record<string, any>[]>("/rankings", {
         query: { hero_id: args.hero_id },
-        ttl: "listing",
+        ttl: "aggregate",
       });
       return rows.map((row) => ({
         rank: row.rank,

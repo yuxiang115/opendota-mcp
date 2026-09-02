@@ -58,7 +58,7 @@ export const playerTools: ToolDef[] = [
     },
     handler: async (args, ctx) => {
       const lang = effectiveLanguage(args.language, ctx);
-      const data = await apiGet<Record<string, any>>(`/players/${args.account_id}`, { ttl: "listing" });
+      const data = await apiGet<Record<string, any>>(`/players/${args.account_id}`, { ttl: "player" });
       let country: string | undefined;
       try {
         const code = data.profile?.loccountrycode;
@@ -124,7 +124,7 @@ export const playerTools: ToolDef[] = [
     handler: async (args) => {
       const wl = await apiGet<{ win: number; lose: number }>(`/players/${args.account_id}/wl`, {
         query: toQuery(filtersOf(args)),
-        ttl: "listing",
+        ttl: "player",
       });
       const total = (wl.win ?? 0) + (wl.lose ?? 0);
       return { ...wl, total, win_rate_pct: total > 0 ? Math.round(((wl.win ?? 0) / total) * 1000) / 10 : undefined };
@@ -143,7 +143,7 @@ export const playerTools: ToolDef[] = [
     handler: async (args, ctx) => {
       const rows = await apiGet<Record<string, any>[]>(`/players/${args.account_id}/heroes`, {
         query: toQuery(filtersOf(args)),
-        ttl: "listing",
+        ttl: "player",
       });
       const lang = effectiveLanguage(args.language, ctx);
       return Promise.all(
@@ -169,7 +169,7 @@ export const playerTools: ToolDef[] = [
     },
     handler: async (args) => {
       // The peers endpoint ignores/mangles a limit param — page locally.
-      const rows = await apiGet<Record<string, any>[]>(`/players/${args.account_id}/peers`, { ttl: "listing" });
+      const rows = await apiGet<Record<string, any>[]>(`/players/${args.account_id}/peers`, { ttl: "player" });
       return (rows ?? []).slice(0, args.limit ?? 15).map((row) => {
         const games = (row.games ?? 0) as number;
         const withGames = (row.with_games ?? 0) as number;
@@ -222,7 +222,7 @@ export const playerTools: ToolDef[] = [
       const lang = effectiveLanguage(args.language, ctx);
       const history = await apiGet<{ match_id: number }[]>(`/players/${args.account_id}/matches`, {
         query: { limit: args.limit_matches ?? 30, significant: args.significant },
-        ttl: "listing",
+        ttl: "default",
       });
       const matches = (
         await Promise.all(
@@ -322,7 +322,7 @@ export const playerTools: ToolDef[] = [
       const lang = effectiveLanguage(args.language, ctx);
       const history = await apiGet<{ match_id: number }[]>(`/players/${args.account_id}/matches`, {
         query: { included_account_id: args.peer_account_id, limit: args.limit_matches ?? 30 },
-        ttl: "listing",
+        ttl: "default",
       });
       const matches = (
         await Promise.all(
@@ -417,7 +417,7 @@ export const playerTools: ToolDef[] = [
     handler: async (args) => {
       return apiGet(`/players/${args.account_id}/pros`, {
         query: toQuery({ limit: args.limit }),
-        ttl: "listing",
+        ttl: "player",
       });
     },
   },
@@ -430,7 +430,7 @@ export const playerTools: ToolDef[] = [
       ...playerFilterShape,
     },
     handler: async (args) => {
-      return apiGet(`/players/${args.account_id}/totals`, { query: toQuery(filtersOf(args)), ttl: "listing" });
+      return apiGet(`/players/${args.account_id}/totals`, { query: toQuery(filtersOf(args)), ttl: "player" });
     },
   },
   {
@@ -445,7 +445,7 @@ export const playerTools: ToolDef[] = [
     handler: async (args) => {
       const counts = await apiGet<Record<string, Record<string, number>>>(`/players/${args.account_id}/counts`, {
         query: toQuery(filtersOf(args)),
-        ttl: "listing",
+        ttl: "player",
       });
       const resolveKeys = async (
         table: Record<string, number>,
@@ -482,7 +482,7 @@ export const playerTools: ToolDef[] = [
       const { field, ...rest } = args;
       return apiGet(`/players/${args.account_id}/histograms/${encodeURIComponent(String(field))}`, {
         query: toQuery(filtersOf(rest)),
-        ttl: "listing",
+        ttl: "player",
       });
     },
   },
@@ -499,7 +499,7 @@ export const playerTools: ToolDef[] = [
       // Structure is nested: { "<row>": { "<col>": count } } on a 64x64 grid.
       const data = await apiGet<{ obs?: Record<string, Record<string, number>>; sen?: Record<string, Record<string, number>> }>(
         `/players/${args.account_id}/wardmap`,
-        { query: toQuery(filtersOf(args)), ttl: "listing" },
+        { query: toQuery(filtersOf(args)), ttl: "player" },
       );
       const total = (m?: Record<string, Record<string, number>>) =>
         Object.values(m ?? {}).reduce((s, row) => s + Object.values(row ?? {}).reduce((a, b) => a + b, 0), 0);
@@ -524,7 +524,7 @@ export const playerTools: ToolDef[] = [
     handler: async (args) => {
       const data = await apiGet<{ my_word_counts?: Record<string, number>; all_word_counts?: Record<string, number> }>(
         `/players/${args.account_id}/wordcloud`,
-        { query: toQuery(filtersOf(args)), ttl: "listing" },
+        { query: toQuery(filtersOf(args)), ttl: "player" },
       );
       const cap = args.limit ?? 50;
       const top = (m?: Record<string, number>) =>
@@ -544,7 +544,7 @@ export const playerTools: ToolDef[] = [
     },
     handler: async (args, ctx) => {
       const lang = effectiveLanguage(args.language, ctx);
-      const rows = await apiGet<Record<string, any>[]>(`/players/${args.account_id}/ratings`, { ttl: "listing" });
+      const rows = await apiGet<Record<string, any>[]>(`/players/${args.account_id}/ratings`, { ttl: "player" });
       return rows.map((row) => ({
         match_id: row.match_id,
         time: formatTimestamp(row.time),
@@ -561,7 +561,7 @@ export const playerTools: ToolDef[] = [
       language: languageParam,
     },
     handler: async (args, ctx) => {
-      const rows = await apiGet<Record<string, any>[]>(`/players/${args.account_id}/rankings`, { ttl: "listing" });
+      const rows = await apiGet<Record<string, any>[]>(`/players/${args.account_id}/rankings`, { ttl: "player" });
       const lang = effectiveLanguage(args.language, ctx);
       return Promise.all(
         rows.map(async (row) => ({
