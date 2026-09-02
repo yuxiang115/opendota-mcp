@@ -2,7 +2,7 @@ import { z } from "zod";
 import { apiGet } from "../client.js";
 import { enrichMatch } from "../enrich.js";
 import { getAbilityIds, getHeroAbilities } from "../constants.js";
-import { heroRef, itemRef, abilityRef } from "../mapping.js";
+import { heroRef, itemRef, abilityRef, rankTierToLabel } from "../mapping.js";
 import { getLocaleBundle, type SupportedLanguage } from "../locales.js";
 import { sampleFields } from "../stats.js";
 import { stratzQuery, StratzApiError } from "../stratz.js";
@@ -26,12 +26,32 @@ const bracketArg = z
   .optional()
   .describe("Rank bracket filter. Omit for all brackets combined.");
 
-const BRACKET_LABEL: Record<string, string> = {
-  herald_guardian: "Herald–Guardian (low)",
-  crusader_archon: "Crusader–Archon (mid-low)",
-  legend_ancient: "Legend–Ancient (mid-high)",
-  divine_immortal: "Divine–Immortal (high)",
+/**
+ * STRATZ bracket ranges, named with Valve's official medal terms and localized.
+ * (Herald=medal 1 ... Immortal=medal 8; each range spans two medals.)
+ */
+const BRACKET_MEDALS: Record<string, [number, number, string]> = {
+  herald_guardian: [1, 2, "low"],
+  crusader_archon: [3, 4, "mid-low"],
+  legend_ancient: [5, 6, "mid-high"],
+  divine_immortal: [7, 8, "high"],
 };
+const BRACKET_QUALIFIER_I18N: Record<string, Record<string, string>> = {
+  schinese: { low: "低分段", "mid-low": "中低分段", "mid-high": "中高分段", high: "高分段" },
+  tchinese: { low: "低分段", "mid-low": "中低分段", "mid-high": "中高分段", high: "高分段" },
+};
+function bracketRangeLabel(key: string, lang?: string): string {
+  const entry = BRACKET_MEDALS[key];
+  if (!entry) return key;
+  const [lo, hi, qual] = entry;
+  const medalName = (m: number) => rankTierToLabel(m * 10, undefined, lang) ?? String(m);
+  const range = `${medalName(lo)}–${medalName(hi)}`;
+  const qualMap = BRACKET_QUALIFIER_I18N[String(lang ?? "english")];
+  return qualMap ? `${range}（${qualMap[qual]}）` : `${range} (${qual})`;
+}
+function bracketAllLabel(lang?: string): string {
+  return String(lang) === "schinese" || String(lang) === "tchinese" ? "全分段" : "all brackets";
+}
 
 const positionArg = z
   .enum(["1", "2", "3", "4", "5"])
@@ -302,7 +322,7 @@ const rawStratzTools: ToolDef[] = [
       const weak = rows.filter((r) => r.win_rate_pct <= 48).sort((a, b) => a.win_rate_pct - b.win_rate_pct).slice(0, take);
       return {
         hero: (await heroRef(heroId, lang))?.name,
-        bracket: args.bracket ? BRACKET_LABEL[args.bracket] : "all brackets",
+        bracket: args.bracket ? bracketRangeLabel(args.bracket, lang) : bracketAllLabel(lang),
         strong_against: strong,
         struggles_against: weak,
         note: "Win rates are this hero's, recomputed from raw counts; use ci95_pp when quoting numbers.",
@@ -359,7 +379,7 @@ const rawStratzTools: ToolDef[] = [
         .slice(0, args.limit ?? 15);
       return {
         hero: (await heroRef(heroId, lang))?.name,
-        bracket: args.bracket ? BRACKET_LABEL[args.bracket] : "all brackets",
+        bracket: args.bracket ? bracketRangeLabel(args.bracket, lang) : bracketAllLabel(lang),
         position: args.position ? `position ${args.position}` : "all positions",
         items: rows,
         note: "Repeated purchases (e.g. consumables) count every timing bucket; win rate is across games with a purchase of that item.",
@@ -409,7 +429,7 @@ const rawStratzTools: ToolDef[] = [
         .sort((a, b) => (a.level ?? 99) - (b.level ?? 99) || b.games - a.games);
       return {
         hero: (await heroRef(heroId, lang))?.name,
-        bracket: args.bracket ? BRACKET_LABEL[args.bracket] : "all brackets",
+        bracket: args.bracket ? bracketRangeLabel(args.bracket, lang) : bracketAllLabel(lang),
         position: args.position ? `position ${args.position}` : "all positions",
         talents: rows,
         note: "Counts cover games where the talent was picked (both branches of a tier never sum to all games).",
@@ -462,7 +482,7 @@ const rawStratzTools: ToolDef[] = [
       const total = rows.reduce((s, r) => s + r.lane_games, 0);
       return {
         hero: (await heroRef(heroId, lang))?.name,
-        bracket: args.bracket ? BRACKET_LABEL[args.bracket] : "all brackets",
+        bracket: args.bracket ? bracketRangeLabel(args.bracket, lang) : bracketAllLabel(lang),
         hardest_lanes: rows.slice(0, take),
         easiest_lanes: rows.slice(-take).reverse(),
         overall: `aggregated lane games in sample: ${total}`,
@@ -576,7 +596,7 @@ const rawStratzTools: ToolDef[] = [
         ...(allyIds.length
           ? { allies: await Promise.all(allyIds.map((id) => heroRef(id, lang).then((r) => r?.name ?? `hero ${id}`))) }
           : {}),
-        bracket: args.bracket ? BRACKET_LABEL[args.bracket] : "all brackets",
+        bracket: args.bracket ? bracketRangeLabel(args.bracket, lang) : bracketAllLabel(lang),
         recommendations,
         note: "Candidates ranked by how many enemies they beat (>= 30 games per matchup); win rates are the candidate's, from the enemy's disadvantage pairs.",
         source: "stratz.com",
@@ -631,7 +651,7 @@ const rawStratzTools: ToolDef[] = [
       const notes = await lineupNotes(yours, enemy, lang, "Your", "Enemy");
 
       return {
-        bracket: args.bracket ? BRACKET_LABEL[args.bracket] : "all brackets",
+        bracket: args.bracket ? bracketRangeLabel(args.bracket, lang) : bracketAllLabel(lang),
         yours: { heroes: yours.heroes, totals: yours.totals },
         ...(enemy ? { enemy: { heroes: enemy.heroes, totals: enemy.totals } } : {}),
         coach_notes: notes,
@@ -827,7 +847,7 @@ const rawStratzTools: ToolDef[] = [
         winner: match.radiant_win == null ? undefined : match.radiant_win ? "radiant" : "dire",
         duration_min: durationMin,
         parsed,
-        bracket: bracket ? `${BRACKET_LABEL[bracket]} (detected from player medals)` : "all brackets (match had no medal data)",
+        bracket: bracket ? `${bracketRangeLabel(bracket, lang)}（按玩家段位检测）` : bracketAllLabel(lang),
         ...(enriched.losing_team_max_gold_lead != null ? { losing_team_max_gold_lead: enriched.losing_team_max_gold_lead } : {}),
         ...(parsed
           ? {
@@ -910,7 +930,7 @@ const rawStratzTools: ToolDef[] = [
       );
       return {
         hero: (await heroRef(heroId, lang))?.name,
-        bracket: args.bracket ? BRACKET_LABEL[args.bracket] : "all brackets",
+        bracket: args.bracket ? bracketRangeLabel(args.bracket, lang) : bracketAllLabel(lang),
         position: args.position ? `position ${args.position}` : "all positions",
         abilities: rows.filter((r) => r.first_point || r.maxed),
         note: "first_point = hero level when the ability gets its first skill point (dominant choice + share); maxed = hero level when it reaches its final level. Talents/facet skills are excluded — use get_talent_stats.",
@@ -960,7 +980,7 @@ const rawStratzTools: ToolDef[] = [
       const best = rows.slice().sort((a, b) => b.games * (b.win_rate_pct ?? 0) - a.games * (a.win_rate_pct ?? 0))[0];
       return {
         hero: (await heroRef(heroId, lang))?.name,
-        bracket: args.bracket ? BRACKET_LABEL[args.bracket] : "all brackets",
+        bracket: args.bracket ? bracketRangeLabel(args.bracket, lang) : bracketAllLabel(lang),
         positions: rows,
         ...(best ? { most_played: { position: best.position, win_rate_pct: best.win_rate_pct, games: best.games } } : {}),
         note: "Averages are per game; damage fields are STRATZ raw values (use for within-hero comparison). Off-position samples are often tiny — check low_sample before judging.",
@@ -1009,7 +1029,7 @@ const rawStratzTools: ToolDef[] = [
       }
       return {
         hero: (await heroRef(heroId, lang))?.name,
-        bracket: args.bracket ?? "all brackets",
+        bracket: args.bracket ? bracketRangeLabel(args.bracket, lang) : bracketAllLabel(lang),
         by_patch: rows,
         source: "stratz.com",
       };

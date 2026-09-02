@@ -120,7 +120,7 @@ export const heroTools: ToolDef[] = [
       return {
         hero,
         bracket: args.bracket,
-        bracket_label: bracketLabel(args.bracket) ?? "all public matches (no bracket filter)",
+        bracket_label: bracketLabel(args.bracket, lang) ?? "all public matches (no bracket filter)",
         benchmarks: data?.result,
         note:
           "values are what the given percentile of players achieves (last hits @10 min, GPM, XPM, kills, ...); " +
@@ -191,8 +191,10 @@ export const heroTools: ToolDef[] = [
     description: "Global top players on a hero (leaderboard scores and ranks).",
     schema: {
       hero_id: heroIdParam,
+      language: languageParam,
     },
-    handler: async (args) => {
+    handler: async (args, ctx) => {
+      const lang = effectiveLanguage(args.language, ctx);
       const rows = await apiGet<Record<string, any>[]>("/rankings", {
         query: { hero_id: args.hero_id },
         ttl: "listing",
@@ -202,7 +204,7 @@ export const heroTools: ToolDef[] = [
         score: row.score,
         account_id: row.account_id,
         personaname: row.personaname,
-        rank_tier: rankTierToLabel(row.rank_tier),
+        rank_tier: rankTierToLabel(row.rank_tier, undefined, lang),
         steam_id: row.steamid,
       }));
     },

@@ -149,7 +149,7 @@ export const scenarioTools: ToolDef[] = [
               .filter(Boolean);
           return {
             match_id: m.match_id,
-            avg_rank: rankTierToLabel(m.avg_rank_tier),
+            avg_rank: rankTierToLabel(m.avg_rank_tier, undefined, lang),
             avg_rank_tier_raw: m.avg_rank_tier,
             duration_seconds: m.duration,
             radiant_win: m.radiant_win,

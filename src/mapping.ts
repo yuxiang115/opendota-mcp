@@ -226,7 +226,7 @@ export async function enrichPlayerMatchRow(
   if (leaver) out.leaver_status = leaver;
   const avgRank = row.average_rank as number | undefined;
   if (avgRank != null && avgRank > 0) {
-    out.average_rank = rankTierToLabel(avgRank);
+    out.average_rank = rankTierToLabel(avgRank, undefined, lang);
   }
   return out;
 }

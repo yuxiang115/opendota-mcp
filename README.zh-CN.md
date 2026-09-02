@@ -127,7 +127,7 @@ npx opendota-mcp install-skill zcode    # 指定: claude-code | zcode | openclaw
 
 ## 本地化数据
 
-`locales/` 目录内置 28 种语言名称表（英雄 127 / 物品 544 / 技能 2702 条），由 `npm run build:locales` 从 Valve 官方 datafeed 重新生成。任何返回游戏实体的工具都接受 `language` 参数（`"schinese"`、`"zh-CN"`、`"ru"` 等），名称字段统一为 `{ name: 本地化名, name_en: 英文名 }`。
+`locales/` 目录内置 28 种语言名称表（英雄 127 / 物品 544 / 技能 2702 条），由 `npm run build:locales` 从 Valve 官方 datafeed 重新生成。任何返回游戏实体的工具都接受 `language` 参数（`"schinese"`、`"zh-CN"`、`"ru"` 等），名称字段统一为 `{ name: 本地化名, name_en: 英文名 }`。天梯段位名同样本地化，使用 Valve 官方客户端词条（未校准/先锋/卫士/中军/统帅/传奇/万古流芳/超凡入圣/冠绝一世），其他语言回退英文名。
 
 ## 开发
 

@@ -691,6 +691,14 @@ console.log("\n■ Regression Q — rank tiers always labeled (publicMatches avg
   ok("benchmarks percentiles passed through", bm.benchmarks?.gold_per_min?.[0]?.value === 650, JSON.stringify(bm.benchmarks?.gold_per_min?.[0]));
   const bmAll = await call(mc, "get_hero_benchmarks", { hero_id: 1 });
   ok("benchmarks without bracket states its scope", /all public/.test(bmAll.bracket_label ?? ""), bmAll.bracket_label);
+  const bmZh = await call(mc, "get_hero_benchmarks", { hero_id: 1, bracket: 6, language: "schinese" });
+  ok("medal names localized (bracket 6 -> 万古流芳)", bmZh.bracket_label === "万古流芳", bmZh.bracket_label);
+  const pubZh = await call(mc, "get_public_matches", { limit: 5, language: "schinese" });
+  ok(
+    "rank tier labels localized (64 -> 万古流芳 4)",
+    pubZh.matches?.[0]?.avg_rank === "万古流芳 4",
+    JSON.stringify(pubZh.matches?.[0]?.avg_rank),
+  );
   await mc.close();
   mock.close();
 }
@@ -840,7 +848,7 @@ console.log("\n■ Regression R — STRATZ provider (bracket/position aggregates
     head(mu.strong_against?.[0]),
   );
   ok("struggles list computed from losses", mu.struggles_against?.[0]?.win_rate_pct === 35, head(mu.struggles_against?.[0]));
-  ok("bracket label present", mu.bracket === "Divine–Immortal (high)", mu.bracket);
+  ok("bracket label present (localized)", mu.bracket === "超凡入圣–冠绝一世（高分段）", mu.bracket);
   ok("source attribution", mu.source === "stratz.com");
 
   const items = await call(sc, "get_item_builds_by_rank", { hero: 44, limit: 5 });

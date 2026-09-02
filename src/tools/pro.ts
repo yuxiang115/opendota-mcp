@@ -118,7 +118,7 @@ export const proTools: ToolDef[] = [
             game_time: formatDuration(row.game_time),
             game_time_seconds: row.game_time,
             spectators: row.spectators,
-            average_rank: row.average_rank_tier ? rankTierToLabel(row.average_rank_tier) : undefined,
+            average_rank: row.average_rank_tier ? rankTierToLabel(row.average_rank_tier, undefined, lang) : undefined,
             league_id: row.leagueid,
             radiant_lead: row.radiant_lead,
             radiant_score: row.radiant_score,

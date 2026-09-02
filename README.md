@@ -248,7 +248,7 @@ Hero, item and ability names are localized into **28 languages**, generated from
 
 english, schinese (简体中文)， tchinese (繁體中文)， japanese, koreana, russian, spanish, latam, brazilian, portuguese, french, german, italian, turkish, polish, czech, danish, dutch, finnish, greek, hungarian, norwegian, romanian, swedish, thai, vietnamese, ukrainian, bulgarian.
 
-Pass `language` on any tool that returns game-entity names (`"schinese"`, `"zh-CN"`, `"ru"`, ...), or set `OPENDOTA_LANGUAGE` globally. Every name field is returned as `{ name: <localized>, name_en: <English> }` so agents can cross-reference guides in either language.
+Pass `language` on any tool that returns game-entity names (`"schinese"`, `"zh-CN"`, `"ru"`, ...), or set `OPENDOTA_LANGUAGE` globally. Every name field is returned as `{ name: <localized>, name_en: <English> }` so agents can cross-reference guides in either language. Rank medal names are localized too, using Valve's official client terms (`DOTARankTierName`: 万古流芳 = Ancient, 冠绝一世 = Immortal, ...) for schinese/tchinese; other languages fall back to English medal names.
 
 ## Example: enriched match view
 

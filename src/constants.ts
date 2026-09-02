@@ -248,25 +248,40 @@ const RANK_MEDALS = [
   "Immortal",
 ];
 
-export function rankTierToLabel(rankTier?: number, leaderboardRank?: number | null): string | undefined {
+/**
+ * Official medal tier names from Valve's client localization tokens
+ * (DOTARankTierName0-8, dota_{language}.txt). Subset: languages players most
+ * often ask for; other languages fall back to English names.
+ */
+const RANK_MEDALS_I18N: Record<string, string[]> = {
+  schinese: ["未校准", "先锋", "卫士", "中军", "统帅", "传奇", "万古流芳", "超凡入圣", "冠绝一世"],
+  tchinese: ["未校準", "先鋒", "守護者", "十字軍", "執政官", "傳奇", "萬古流芳", "超凡入聖", "永垂不朽"],
+};
+
+function rankMedalName(medal: number, lang?: string): string {
+  const table = RANK_MEDALS_I18N[String(lang ?? "english")] ?? RANK_MEDALS;
+  return table[medal] ?? RANK_MEDALS[medal] ?? `Rank ${medal}`;
+}
+
+export function rankTierToLabel(rankTier?: number, leaderboardRank?: number | null, lang?: string): string | undefined {
   if (rankTier == null) return undefined;
-  if (rankTier === 0) return "Uncalibrated";
+  if (rankTier === 0) return rankMedalName(0, lang);
   const medal = Math.floor(rankTier / 10);
   const stars = rankTier % 10;
-  const medalName = RANK_MEDALS[medal] ?? `Rank ${medal}`;
   if (medal >= 8) {
     if (leaderboardRank != null && leaderboardRank > 0 && leaderboardRank <= 500) {
-      return `Immortal (leaderboard #${leaderboardRank})`;
+      return `${rankMedalName(8, lang)} (leaderboard #${leaderboardRank})`;
     }
-    return "Immortal";
+    return rankMedalName(8, lang);
   }
+  const medalName = rankMedalName(medal, lang);
   return stars > 0 ? `${medalName} ${stars}` : medalName;
 }
 
 /** Benchmark/heroStats bracket ids: 1 Herald .. 8 Immortal (OpenDota /benchmarks bracket param). */
-export function bracketLabel(bracket?: number): string | undefined {
+export function bracketLabel(bracket?: number, lang?: string): string | undefined {
   if (bracket == null) return undefined;
-  return RANK_MEDALS[bracket] ?? `bracket ${bracket}`;
+  return rankMedalName(bracket, lang);
 }
 
 export function getOrderTypes(): Promise<Record<string, string>> {

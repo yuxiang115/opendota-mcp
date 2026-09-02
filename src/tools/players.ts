@@ -53,8 +53,10 @@ export const playerTools: ToolDef[] = [
       "(e.g. 'Immortal', 'Legend 3'), leaderboard position, MMR estimate.",
     schema: {
       account_id: accountId,
+      language: languageParam,
     },
-    handler: async (args) => {
+    handler: async (args, ctx) => {
+      const lang = effectiveLanguage(args.language, ctx);
       const data = await apiGet<Record<string, any>>(`/players/${args.account_id}`, { ttl: "listing" });
       let country: string | undefined;
       try {
@@ -68,7 +70,7 @@ export const playerTools: ToolDef[] = [
       return {
         ...data,
         country,
-        rank_tier: rankTierToLabel(data.rank_tier, data.leaderboard_rank),
+        rank_tier: rankTierToLabel(data.rank_tier, data.leaderboard_rank, lang),
         rank_tier_raw: data.rank_tier,
         leaderboard_rank: data.leaderboard_rank,
       };
@@ -313,13 +315,15 @@ export const playerTools: ToolDef[] = [
     description: "History of a player's rank medal changes over time (rank_tier snapshots per match).",
     schema: {
       account_id: accountId,
+      language: languageParam,
     },
-    handler: async (args) => {
+    handler: async (args, ctx) => {
+      const lang = effectiveLanguage(args.language, ctx);
       const rows = await apiGet<Record<string, any>[]>(`/players/${args.account_id}/ratings`, { ttl: "listing" });
       return rows.map((row) => ({
         match_id: row.match_id,
         time: formatTimestamp(row.time),
-        rank_tier: rankTierToLabel(row.rank_tier),
+        rank_tier: rankTierToLabel(row.rank_tier, undefined, lang),
         rank_tier_raw: row.rank_tier,
       }));
     },

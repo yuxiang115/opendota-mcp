@@ -444,7 +444,7 @@ async function enrichMatchPlayer(
     sen_placed: p.sen_placed,
   };
   if (p.rank_tier != null && (p.rank_tier as number) > 0) {
-    out.rank_tier = rankTierToLabel(p.rank_tier as number);
+    out.rank_tier = rankTierToLabel(p.rank_tier as number, undefined, lang);
   }
   const mhh = p.max_hero_hit as Record<string, any> | undefined;
   if (mhh && mhh.value != null) {
