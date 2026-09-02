@@ -28,7 +28,7 @@ import {
 } from "./constants.js";
 import { apiGet, readBundleManifest, seedConstantsFromBundle } from "./client.js";
 
-const PACKAGE_VERSION = "0.6.0";
+const PACKAGE_VERSION = "0.6.1";
 
 const allTools: ToolDef[] = [
   ...systemTools,

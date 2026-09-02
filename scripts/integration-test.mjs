@@ -517,7 +517,7 @@ console.log("\n■ Regression N — bundle seed + patch probe + negative-lookup 
   });
   await new Promise((r) => mock.listen(0, "127.0.0.1", r));
   const port = mock.address().port;
-  const base = { OPENDOTA_BASE_URL: `http://127.0.0.1:${port}/api`, OPENDOTA_BUNDLE_SEED: "1" };
+  const base = { OPENDOTA_BASE_URL: `http://127.0.0.1:${port}/api`, OPENDOTA_BUNDLE_SEED: "1", OPENDOTA_BUNDLE_PERSIST: "0" };
 
   // Scenario 1: probe matches bundled patch id -> cold boot + full get_match = exactly 2 requests
   {
@@ -554,6 +554,53 @@ console.log("\n■ Regression N — bundle seed + patch probe + negative-lookup 
     await mc.close();
   }
   mock.close();
+}
+
+// ─────────────────────────────────────────────────────────────
+console.log("\n■ Regression O — self-updating bundle (network refresh persists back to constants-bundle/)");
+{
+  const { readFileSync, writeFileSync, existsSync } = await import("node:fs");
+  const path = await import("node:path");
+  let patchRespO = [{ id: 60, name: "7.41" }];
+  const mockO = (await import("node:http")).createServer((req, res) => {
+    const p = req.url.replace(/^\/api/, "").split("?")[0];
+    res.setHeader("content-type", "application/json");
+    if (p === "/constants/patch") res.end(JSON.stringify(patchRespO));
+    else if (p === "/constants/heroes") res.end(JSON.stringify({ 1: { id: 1, localized_name: "Anti-Mage" } }));
+    else res.end("{}");
+  });
+  await new Promise((r) => mockO.listen(0, "127.0.0.1", r));
+  const portO = mockO.address().port;
+  const manifestPath = path.resolve("constants-bundle/manifest.json");
+  const patchPath = path.resolve("constants-bundle/patch.json");
+  const savedManifest = readFileSync(manifestPath, "utf8");
+  const savedPatch = readFileSync(patchPath, "utf8");
+  try {
+    patchRespO = [{ id: 123, name: "9.99" }];
+    const mc = await boot({ OPENDOTA_BASE_URL: `http://127.0.0.1:${portO}/api`, OPENDOTA_BUNDLE_SEED: "1", OPENDOTA_BUNDLE_PERSIST: "1" });
+    await new Promise((r) => setTimeout(r, 800));
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const patchData = JSON.parse(readFileSync(patchPath, "utf8"));
+    ok("stale probe persists refreshed patch back into the bundle", patchData.some((p) => p.id === 123), JSON.stringify(patchData));
+    ok("manifest max_patch_id advanced to the fetched value", manifest.max_patch_id === 123, JSON.stringify(manifest.max_patch_id));
+    await mc.close();
+  } finally {
+    // A stale probe refreshes ALL bundled resources and persists them, so
+    // restore the whole directory from git rather than individual files.
+    try {
+      (await import("node:child_process")).execSync("git checkout -- constants-bundle/", { stdio: "ignore" });
+    } catch {
+      writeFileSync(manifestPath, savedManifest);
+      writeFileSync(patchPath, savedPatch);
+    }
+  }
+  // Boot once more (probe back to matching) to confirm the restored bundle still seeds cleanly.
+  patchRespO = [{ id: 60, name: "7.41" }];
+  const mc2 = await boot({ OPENDOTA_BASE_URL: `http://127.0.0.1:${portO}/api`, OPENDOTA_BUNDLE_SEED: "1", OPENDOTA_BUNDLE_PERSIST: "0" });
+  const m2 = await call(mc2, "get_constants", { resource: "heroes" });
+  ok("bundle intact after restore", Object.keys(m2 ?? {}).length > 100);
+  await mc2.close();
+  mockO.close();
 }
 
 // ─────────────────────────────────────────────────────────────

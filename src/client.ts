@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { CACHE_TTL, OPENDEOTA_API_KEY, OPENDOTA_BASE_URL, RATE_LIMIT_PER_MINUTE } from "./config.js";
+import { CACHE_TTL, OPENDEOTA_API_KEY, OPENDOTA_BASE_URL, RATE_LIMIT_PER_MINUTE, shouldSeedBundle } from "./config.js";
 
 interface CacheEntry {
   /** Disk format version: old entries with a different TTL policy are ignored. */
@@ -82,6 +82,50 @@ export function healResource(pathname: string): void {
   if (healedResources.has(pathname)) return;
   healedResources.add(pathname);
   apiGet(pathname, { ttl: "constants", forceRefresh: true }).catch(() => {});
+}
+
+let bundlePersistEnabled: boolean | null = null;
+
+function persistAllowed(): boolean {
+  if (bundlePersistEnabled === null) {
+    const flag = (process.env.OPENDOTA_BUNDLE_PERSIST ?? "auto").toLowerCase();
+    bundlePersistEnabled =
+      flag === "1" || flag === "true" || flag === "on"
+        ? true
+        : flag === "0" || flag === "false" || flag === "off"
+          ? false
+          : shouldSeedBundle();
+  }
+  return bundlePersistEnabled;
+}
+
+const CONSTANTS_PATH_RE = /^\/constants\/([a-z_]+)$/;
+
+/**
+ * Write a freshly fetched constants resource back into the shipped bundle and
+ * bump the manifest (so the next boot's patch probe compares against the new
+ * data instead of the stale build). Entirely best-effort: npx caches and
+ * read-only installs silently keep the original bundle, and runtime data
+ * freshness never depends on this succeeding.
+ */
+function maybePersistToBundle(pathname: string, data: unknown): void {
+  const match = CONSTANTS_PATH_RE.exec(pathname);
+  if (!match || !persistAllowed()) return;
+  const resource = match[1];
+  if (Array.isArray(readBundleManifest()?.resources) && !(readBundleManifest()?.resources ?? []).includes(resource)) {
+    return; // not part of the bundle — nothing to update
+  }
+  try {
+    writeFileSync(path.join(BUNDLE_DIR, `${resource}.json`), JSON.stringify(data), "utf8");
+    const manifest = readBundleManifest() ?? { resources: [] };
+    const next: BundleManifest = { ...manifest, bundled_at: new Date().toISOString() };
+    if (resource === "patch" && Array.isArray(data)) {
+      next.max_patch_id = (data as { id?: number }[]).reduce((max, p) => Math.max(max, p.id ?? 0), 0);
+    }
+    writeFileSync(path.join(BUNDLE_DIR, "manifest.json"), JSON.stringify(next, null, 2), "utf8");
+  } catch {
+    /* read-only install (npx cache, system dir) — keep the shipped bundle */
+  }
 }
 
 function diskFile(cacheKey: string): string {
@@ -282,7 +326,13 @@ export async function apiGet<T>(path: string, options: RequestOptions = {}): Pro
       if (method === "GET") {
         const entry: CacheEntry = { expiresAt: Date.now() + ttlMs(options.ttl), data };
         cache.set(cacheKey, entry);
-        if (options.ttl === "constants") writeDiskCache(cacheKey, entry);
+        if (options.ttl === "constants") {
+          writeDiskCache(cacheKey, entry);
+          // Self-updating bundle: a successful network fetch of a constants
+          // resource is written back into the shipped bundle so the NEXT cold
+          // start seeds fresh data (best-effort; read-only installs just skip).
+          maybePersistToBundle(path, data);
+        }
       }
       return data as T;
     } catch (err) {
