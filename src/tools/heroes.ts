@@ -2,7 +2,8 @@ import { z } from "zod";
 import { apiGet } from "../client.js";
 import { enrichHeroMatchupRow, enrichHeroStatRow, enrichItemPopularity } from "../enrich.js";
 import { getLocaleBundle } from "../locales.js";
-import { enrichPlayerMatchRow, rankTierToLabel } from "../mapping.js";
+import { enrichPlayerMatchRow, heroRef, rankTierToLabel } from "../mapping.js";
+import { bracketLabel } from "../constants.js";
 import { effectiveLanguage, languageParam, type ToolDef } from "./registry.js";
 
 const heroIdParam = z
@@ -106,10 +107,25 @@ export const heroTools: ToolDef[] = [
         .min(1)
         .max(8)
         .optional()
-        .describe("Rank bracket 1-8 (Herald..Immortal). Omit for all brackets."),
+        .describe("Rank bracket 1-8 (Herald..Immortal). Omit for all public matches."),
+      language: languageParam,
     },
-    handler: async (args) => {
-      return apiGet("/benchmarks", { query: { hero_id: args.hero_id, bracket: args.bracket }, ttl: "constants" });
+    handler: async (args, ctx) => {
+      const lang = effectiveLanguage(args.language, ctx);
+      const data = await apiGet<Record<string, any>>("/benchmarks", {
+        query: { hero_id: args.hero_id, bracket: args.bracket },
+        ttl: "constants",
+      });
+      const hero = await heroRef(args.hero_id, lang);
+      return {
+        hero,
+        bracket: args.bracket,
+        bracket_label: bracketLabel(args.bracket) ?? "all public matches (no bracket filter)",
+        benchmarks: data?.result,
+        note:
+          "values are what the given percentile of players achieves (last hits @10 min, GPM, XPM, kills, ...); " +
+          "top brackets can be null upstream when the sample is sparse",
+      };
     },
   },
   {

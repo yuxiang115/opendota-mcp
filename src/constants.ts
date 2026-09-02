@@ -263,6 +263,12 @@ export function rankTierToLabel(rankTier?: number, leaderboardRank?: number | nu
   return stars > 0 ? `${medalName} ${stars}` : medalName;
 }
 
+/** Benchmark/heroStats bracket ids: 1 Herald .. 8 Immortal (OpenDota /benchmarks bracket param). */
+export function bracketLabel(bracket?: number): string | undefined {
+  if (bracket == null) return undefined;
+  return RANK_MEDALS[bracket] ?? `bracket ${bracket}`;
+}
+
 export function getOrderTypes(): Promise<Record<string, string>> {
   return apiGet<Record<string, string>>("/constants/order_types", { ttl: "constants" });
 }

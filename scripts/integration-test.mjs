@@ -663,6 +663,39 @@ console.log("\n■ Regression P — hero kit / item details reference tools (bun
 }
 
 // ─────────────────────────────────────────────────────────────
+console.log("\n■ Regression Q — rank tiers always labeled (publicMatches avg rank, benchmarks bracket)");
+{
+  const mock = (await import("node:http")).createServer((req, res) => {
+    const p = req.url.replace(/^\/api/, "").split("?")[0];
+    res.setHeader("content-type", "application/json");
+    if (p === "/constants/patch") res.end(JSON.stringify([{ id: 60, name: "7.41" }]));
+    else if (p === "/publicMatches")
+      res.end(
+        JSON.stringify([
+          { match_id: 111, radiant_win: true, duration: 2400, start_time: 1700000000, avg_rank_tier: 64, radiant_team: [1, 2], dire_team: [3, 4] },
+          { match_id: 222, radiant_win: false, duration: 2100, start_time: 1700000060, avg_rank_tier: 80, radiant_team: [1, 2], dire_team: [3, 4] },
+        ]),
+      );
+    else if (p === "/benchmarks") res.end(JSON.stringify({ hero_id: 1, result: { gold_per_min: [{ percentile: 0.5, value: 650 }] } }));
+    else res.end("{}");
+  });
+  await new Promise((r) => mock.listen(0, "127.0.0.1", r));
+  const port = mock.address().port;
+  const mc = await boot({ OPENDOTA_BASE_URL: `http://127.0.0.1:${port}/api`, OPENDOTA_BUNDLE_SEED: "1", OPENDOTA_BUNDLE_PERSIST: "0" });
+  const pub = await call(mc, "get_public_matches", { limit: 5 });
+  ok("publicMatches avg_rank converted to medal label", pub.matches?.[0]?.avg_rank === "Ancient 4", JSON.stringify(pub.matches?.[0]?.avg_rank));
+  ok("raw tier kept only as avg_rank_tier_raw", pub.matches?.[0]?.avg_rank_tier_raw === 64 && !("avg_rank_tier" in (pub.matches?.[0] ?? {})), JSON.stringify(pub.matches?.[0]));
+  ok("top bracket labeled Immortal", pub.matches?.[1]?.avg_rank === "Immortal", JSON.stringify(pub.matches?.[1]?.avg_rank));
+  const bm = await call(mc, "get_hero_benchmarks", { hero_id: 1, bracket: 6 });
+  ok("benchmarks carries hero name + bracket label", bm.hero?.name_en === "Anti-Mage" && bm.bracket_label === "Ancient", JSON.stringify(bm.bracket_label));
+  ok("benchmarks percentiles passed through", bm.benchmarks?.gold_per_min?.[0]?.value === 650, JSON.stringify(bm.benchmarks?.gold_per_min?.[0]));
+  const bmAll = await call(mc, "get_hero_benchmarks", { hero_id: 1 });
+  ok("benchmarks without bracket states its scope", /all public/.test(bmAll.bracket_label ?? ""), bmAll.bracket_label);
+  await mc.close();
+  mock.close();
+}
+
+// ─────────────────────────────────────────────────────────────
 console.log(`\n═══ 结果: ${passed} passed, ${failed} failed ═══`);
 if (failures.length) {
   console.log("Failures:");

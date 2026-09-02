@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { apiGet } from "../client.js";
-import { abilityRef, laneRoleLabel } from "../mapping.js";
+import { abilityRef, laneRoleLabel, rankTierToLabel } from "../mapping.js";
 import { itemInternalRef } from "../enrich.js";
 import { effectiveLanguage, languageParam, type ToolDef } from "./registry.js";
 
@@ -122,7 +122,8 @@ export const scenarioTools: ToolDef[] = [
               .filter(Boolean);
           return {
             match_id: m.match_id,
-            avg_rank_tier: m.avg_rank_tier,
+            avg_rank: rankTierToLabel(m.avg_rank_tier),
+            avg_rank_tier_raw: m.avg_rank_tier,
             duration_seconds: m.duration,
             radiant_win: m.radiant_win,
             ...(picksKnown
