@@ -61,6 +61,16 @@ const listRes = await client.listTools();
 const tools = listRes.tools;
 ok("server responds to tools/list", Array.isArray(tools) && tools.length > 0, `got ${tools?.length}`);
 console.log(`  server: ${listRes.serverInfo?.name ?? "opendota-mcp"} v${listRes.serverInfo?.version ?? "?"}, ${tools.length} tools`);
+// The server reads its version from package.json at runtime — drift here means
+// a deploy is lying about what code it runs.
+const { readFileSync: readPkg } = await import("node:fs");
+const pkgVersion = JSON.parse(readPkg(new URL("../package.json", import.meta.url), "utf8")).version;
+const serverVersion = client.getServerVersion()?.version;
+ok(
+  `server version matches package.json (${pkgVersion})`,
+  serverVersion === pkgVersion,
+  `server says ${serverVersion}`,
+);
 
 const schema = tools.find((t) => t.name === "get_match")?.inputSchema;
 ok("get_match exposes JSON inputSchema", !!schema?.properties?.match_id, head(schema?.properties?.match_id));

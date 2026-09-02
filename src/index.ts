@@ -40,8 +40,12 @@ import { LOG_TARGET, logBoot, logToolCall, newTraceId, traceStorage } from "./te
 import { registerPrompts } from "./prompts.js";
 import { STRATZ_ENABLED } from "./stratz.js";
 import { stratzTools } from "./tools/stratz.js";
+import { createRequire } from "node:module";
 
-const PACKAGE_VERSION = "0.18.1";
+// Single source of truth: the package.json sitting next to dist/. Reading it at
+// runtime (instead of a hardcoded literal) keeps the reported version honest in
+// every install shape (repo, npx cache, container deploy).
+const PACKAGE_VERSION: string = createRequire(import.meta.url)("../package.json").version;
 
 const allTools: ToolDef[] = [
   ...systemTools,
