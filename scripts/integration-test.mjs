@@ -295,9 +295,54 @@ console.log("\n■ Regression I — position 1-5 estimation and log enrichment (
   ok("radiant positions 1-5 assigned by lane + farm (no native field)", [0, 1, 2, 3, 4].map((s) => byName(s).position).join("") === "12345");
   ok("native position_est overrides the farm heuristic", [131, 129, 128, 130, 132].map((s) => byName(s).position).join("") === "12435", [131, 129, 128, 130, 132].map((s) => byName(s).position).join(""));
   ok("analyst fields surfaced (stuns/teamfight/towers/buyback)", byName(0).stuns === 2.5 && byName(0).teamfight_participation === 0.6 && byName(0).towers_killed === 2 && byName(0).buyback_count === 1);
-  ok("lane labels are side-aware", byName(128).lane === "bottom (off side)" && byName(131).lane === "top (safe side)", `${byName(128).lane} / ${byName(131).lane}`);
+  ok("lane labels are official (Bot/Mid/Top)", byName(128).lane === "Bot" && byName(131).lane === "Top", `${byName(128).lane} / ${byName(131).lane}`);
   ok("purchase_log entries carry item name and cost", byName(0).purchase_log?.[0]?.item === "狂战斧" && byName(0).purchase_log?.[0]?.cost === 4100, JSON.stringify(byName(0).purchase_log?.[0]));
   ok("kills_log victims resolved to hero names", byName(0).kills_log?.[0]?.victim?.name === "美杜莎", JSON.stringify(byName(0).kills_log?.[0]));
+  await mc.close();
+  mock.close();
+}
+
+// ─────────────────────────────────────────────────────────────
+console.log("\n■ Regression J — full field decoding (region/patch/towers/picks/sources)");
+{
+  const match = {
+    match_id: 434343, radiant_win: true, radiant_score: 10, dire_score: 5, duration: 1500,
+    start_time: 1700000000, game_mode: 22, lobby_type: 7, region: 1, patch: 60, version: 22,
+    tower_status_radiant: 2047, tower_status_dire: 390, barracks_status_dire: 63,
+    radiant_gold_adv: [100, -200],
+    picks_bans: [{ is_pick: true, hero_id: 1, team: 0, order: 0 }, { is_pick: true, hero_id: 2, team: 1, order: 1 }],
+    players: [{
+      player_slot: 0, account_id: 7, personaname: 'q', hero_id: 1, kills: 1, deaths: 1, assists: 1, level: 10,
+      radiant_win: true, duration: 1500, start_time: 1700000000, lane: 1, lane_role: 1, gold_per_min: 600,
+      gold_reasons: { 12: 100, 6: 50 }, xp_reasons: { 1: 300 }, runes: { 5: 2 }, kill_streaks: { 3: 1 },
+      max_hero_hit: { value: 500, key: 'npc_dota_hero_pudge', inflictor: 'phantom_assassin_coup_de_grace', time: 600 },
+      permanent_buffs: [{ permanent_buff: 12, stack_count: 0, grant_time: 700 }],
+    }],
+  };
+  const mock = (await import("node:http")).createServer((req, res) => {
+    const path = req.url.replace(/^\/api/, "").split("?")[0];
+    res.setHeader("content-type", "application/json");
+    if (path === "/matches/434343") res.end(JSON.stringify(match));
+    else if (path === "/constants/region") res.end(JSON.stringify({ 1: "US WEST" }));
+    else if (path === "/constants/patch") res.end(JSON.stringify([{ id: 60, name: "7.41" }]));
+    else if (path === "/constants/permanent_buffs") res.end(JSON.stringify({ 12: "aghanims_shard" }));
+    else res.end("{}");
+  });
+  await new Promise((r) => mock.listen(0, "127.0.0.1", r));
+  const mc = await boot({ OPENDOTA_BASE_URL: `http://127.0.0.1:${mock.address().port}/api`, OPENDOTA_LANGUAGE: "schinese" });
+  const m = await call(mc, "get_match", { match_id: 434343, include: { breakdown: true } });
+  const pl = m.players[0];
+  ok("region decoded from match.region", m.region === "US WEST", m.region);
+  ok("patch decoded", m.patch === "7.41", m.patch);
+  ok("towers: all-standing mask decodes", m.radiant_towers_standing?.all_standing === true && m.radiant_towers_standing?.ancient_bottom === true);
+  ok("towers: 390 leaves mid T1-T3 and ancients down", m.dire_towers_standing?.mid_t1 === false && m.dire_towers_standing?.mid_t3 === false && m.dire_towers_standing?.ancient_top === false && m.dire_towers_standing?.top_t2 === true);
+  ok("picks_bans team 0/1 mapped to radiant/dire (non-CM drafts)", m.picks_bans[0].team === "radiant" && m.picks_bans[1].team === "dire", JSON.stringify(m.picks_bans.map(p => p.team)));
+  ok("losing-team gold swing computed", m.losing_team_max_gold_lead === 200 && m.losing_team_max_gold_deficit === 100, `${m.losing_team_max_gold_lead}/${m.losing_team_max_gold_deficit}`);
+  ok("gold sources labeled, undocumented key kept raw", pl.gold_sources?.Hero === 100 && pl.gold_sources?.reason_6 === 50, JSON.stringify(pl.gold_sources));
+  ok("runes labeled (Bounty)", pl.runes?.Bounty === 2, JSON.stringify(pl.runes));
+  ok("kill streaks labeled", pl.kill_streaks?.["Killing Spree"] === 1, JSON.stringify(pl.kill_streaks));
+  ok("biggest hit resolves victim hero + inflictor", pl.biggest_hit?.on?.name_en === "Pudge" && typeof pl.biggest_hit?.with === "string", JSON.stringify(pl.biggest_hit));
+  ok("permanent buff localized via item tables", pl.permanent_buffs?.[0]?.name === "阿哈利姆魔晶", JSON.stringify(pl.permanent_buffs));
   await mc.close();
   mock.close();
 }

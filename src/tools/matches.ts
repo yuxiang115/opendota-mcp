@@ -36,6 +36,13 @@ export const matchTools: ToolDef[] = [
           draft_timings: z.boolean().optional().default(false).describe(INCLUDE_DESCRIPTIONS.draft_timings),
           player_logs: z.boolean().optional().default(false).describe(INCLUDE_DESCRIPTIONS.player_logs),
           benchmarks: z.boolean().optional().default(false).describe(INCLUDE_DESCRIPTIONS.benchmarks),
+          breakdown: z
+            .boolean()
+            .optional()
+            .default(false)
+            .describe(
+              "Per-player deep breakdown: gold/xp income sources, action types, damage sources by ability, killed/killed_by maps, rune pickups.",
+            ),
         })
         .optional()
         .describe("Optional detail sections to include beyond the default compact view."),
@@ -53,6 +60,7 @@ export const matchTools: ToolDef[] = [
         draft_timings: include.draft_timings ?? false,
         player_logs: include.player_logs ?? false,
         benchmarks: include.benchmarks ?? false,
+        breakdown: include.breakdown ?? false,
       });
     },
   },

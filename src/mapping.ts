@@ -9,6 +9,7 @@ import {
   getLobbyTypes,
   getPatches,
   getRegions,
+  type NamedIdConstant,
   LANE_ROLE_LABELS,
   LEAVER_STATUS_LABELS,
   rankTierToLabel,
@@ -149,7 +150,10 @@ export async function patchName(id?: number | null): Promise<string | undefined>
 export async function regionName(regionId?: number | null): Promise<string | undefined> {
   if (regionId == null) return undefined;
   try {
-    return (await getRegions())[String(regionId)]?.name;
+    const regions = await getRegions();
+    const value = regions[String(regionId)];
+    // The constants resource maps region id -> plain string name ("US WEST"), not objects.
+    return typeof value === "string" ? value : (value as NamedIdConstant | undefined)?.name;
   } catch {
     return undefined;
   }

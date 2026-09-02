@@ -1,6 +1,21 @@
 import type { SupportedLanguage } from "./locales.js";
 import { getLocaleBundle } from "./locales.js";
-import { getItems } from "./constants.js";
+import {
+  decodeBarracksStatus,
+  decodeTowerStatus,
+  getItems,
+  getOrderTypes,
+  getPermanentBuffs,
+  GOLD_REASON_LABELS,
+  KILL_STREAK_LABELS,
+  LANE_LABELS,
+  MULTI_KILL_LABELS,
+  OBJECTIVE_LABELS,
+  RUNE_LABELS,
+  labelEnumKeyMap,
+  XP_REASON_LABELS,
+  labelEnumKey,
+} from "./constants.js";
 import {
   abilityRef,
   formatDuration,
@@ -11,6 +26,7 @@ import {
   kdaRatio,
   laneRoleLabel,
   lobbyTypeName,
+  patchName,
   regionName,
   rankTierToLabel,
   sideFromPlayerSlot,
@@ -69,16 +85,46 @@ async function heroInternalRef(internal: string, lang: SupportedLanguage): Promi
   return { name: internal, name_en: internal };
 }
 
-/**
- * Absolute lane ids: 1=bottom, 2=middle, 3=top. Safe/off depends on the side
- * (Radiant safe lane is bottom, Dire's is top).
- */
-function laneLabel(lane: number | undefined, isRadiant: boolean | undefined): string | undefined {
+/** Reverse index: ability internal name ("phantom_assassin_stifling_dagger") -> numeric id. */
+const abilityInternalIndex = new Map<string, number>();
+
+async function inflictorName(key: string, lang: SupportedLanguage): Promise<string> {
+  // Damage inflictor keys mix ability internal names, short item names, and "null" for attacks.
+  if (key === "null" || key === "") return "attacks";
+  if (abilityInternalIndex.size === 0) {
+    for (const [id, entry] of Object.entries(getLocaleBundle("english").abilities)) {
+      abilityInternalIndex.set(entry.internal, Number(id));
+    }
+  }
+  const abilityId = abilityInternalIndex.get(key);
+  if (abilityId != null) return (await abilityRef(abilityId, lang))?.name ?? key;
+  const item = await itemInternalRef(key, lang);
+  return item?.name ?? key;
+}
+
+/** Sort a {key: count} map descending and relabel keys via an async resolver. */
+async function labelCountMap(
+  map: Record<string, number> | undefined,
+  resolver: (key: string) => Promise<string>,
+  cap?: number,
+): Promise<Record<string, number> | undefined> {
+  if (!map) return undefined;
+  const entries = Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, cap ?? Infinity);
+  const out: Record<string, number> = {};
+  for (const [key, count] of entries) out[await resolver(key)] = count;
+  return out;
+}
+
+/** Unit names like npc_dota_hero_medusa / npc_dota_neutral_mud_golem -> readable labels. */
+async function unitLabel(key: string, lang: SupportedLanguage): Promise<string> {
+  if (key.startsWith("npc_dota_hero_")) return (await heroInternalRef(key, lang)).name;
+  return key.replace(/^npc_dota_/, "").replace(/_/g, " ");
+}
+
+/** Absolute lane — official labels (1=Bot, 2=Mid, 3=Top, 4/5=jungle variants). */
+function laneLabel(lane: number | undefined): string | undefined {
   if (lane == null) return undefined;
-  if (lane === 2) return "middle";
-  if (lane === 1) return isRadiant ? "bottom (safe side)" : "bottom (off side)";
-  if (lane === 3) return isRadiant ? "top (off side)" : "top (safe side)";
-  return `lane ${lane}`;
+  return LANE_LABELS[lane] ?? `lane ${lane}`;
 }
 
 /**
@@ -152,6 +198,8 @@ export interface MatchIncludeOptions {
   draft_timings?: boolean;
   player_logs?: boolean;
   benchmarks?: boolean;
+  /** Per-player deep breakdown: gold/xp sources, action types, damage sources, kill maps. */
+  breakdown?: boolean;
 }
 
 const ITEM_SLOTS = [0, 1, 2, 3, 4, 5] as const;
@@ -161,7 +209,13 @@ interface RawPlayer {
   [key: string]: unknown;
 }
 
-async function enrichMatchPlayer(p: RawPlayer, lang: SupportedLanguage, includeLogs: boolean, includeBenchmarks: boolean) {
+async function enrichMatchPlayer(
+  p: RawPlayer,
+  lang: SupportedLanguage,
+  includeLogs: boolean,
+  includeBenchmarks: boolean,
+  includeBreakdown: boolean,
+) {
   const hero = await heroRef(p.hero_id as number, lang);
   const isRadiant = p.player_slot != null ? sideFromPlayerSlot(p.player_slot as number) === "radiant" : undefined;
   const radiantWin = p.radiant_win as boolean | undefined;
@@ -212,11 +266,17 @@ async function enrichMatchPlayer(p: RawPlayer, lang: SupportedLanguage, includeL
     hero_damage: p.hero_damage,
     hero_healing: p.hero_healing,
     tower_damage: p.tower_damage,
-    lane: laneLabel(p.lane as number, isRadiant),
+    lane: laneLabel(p.lane as number),
     lane_role: laneRoleLabel(p.lane_role as number),
     role: p.role,
     is_roaming: p.is_roaming ?? undefined,
     lane_efficiency_pct: p.lane_efficiency_pct,
+    party_id: p.party_id,
+    predicted_victory: p.pred_vict,
+    randomed: p.randomed ?? undefined,
+    runes: labelEnumKeyMap(RUNE_LABELS, p.runes as Record<string, number> | undefined),
+    kill_streaks: labelEnumKeyMap(KILL_STREAK_LABELS, p.kill_streaks as Record<string, number> | undefined),
+    multi_kills: labelEnumKeyMap(MULTI_KILL_LABELS, p.multi_kills as Record<string, number> | undefined),
     stuns: p.stuns,
     teamfight_participation: p.teamfight_participation,
     towers_killed: p.towers_killed,
@@ -238,6 +298,48 @@ async function enrichMatchPlayer(p: RawPlayer, lang: SupportedLanguage, includeL
   };
   if (p.rank_tier != null && (p.rank_tier as number) > 0) {
     out.rank_tier = rankTierToLabel(p.rank_tier as number);
+  }
+  const mhh = p.max_hero_hit as Record<string, any> | undefined;
+  if (mhh && mhh.value != null) {
+    out.biggest_hit = {
+      value: mhh.value,
+      on: await heroInternalRef(mhh.key ?? "", lang),
+      with: await inflictorName(mhh.inflictor ?? "null", lang),
+      time: formatDuration(mhh.time),
+    };
+  }
+  if (Array.isArray(p.permanent_buffs) && p.permanent_buffs.length > 0) {
+    try {
+      const buffs = await getPermanentBuffs();
+      out.permanent_buffs = await Promise.all(
+        (p.permanent_buffs as Record<string, any>[]).map(async (b) => {
+          const internal = buffs[String(b.permanent_buff)] ?? `buff_${b.permanent_buff}`;
+          // Buff ids reference item internal names (e.g. aghanims_shard) — localize when possible.
+          const resolved = await itemInternalRef(internal.replace(/^buff_/, "").replace(/^item_/, ""), lang);
+          return {
+            name: resolved?.name && resolved.name !== internal.replace(/^buff_/, "") ? resolved.name : internal,
+            stack_count: b.stack_count,
+            grant_time: formatDuration(b.grant_time),
+          };
+        }),
+      );
+    } catch {
+      out.permanent_buffs = p.permanent_buffs;
+    }
+  }
+  if (Array.isArray(p.neutral_item_history) && p.neutral_item_history.length > 0) {
+    out.neutral_items = await Promise.all(
+      (p.neutral_item_history as Record<string, any>[]).map(async (h) => {
+        const entry: Record<string, unknown> = { enhancement: h.item_neutral_enhancement, time: formatDuration(h.time) };
+        if (h.item_neutral) {
+          entry.item = (await itemInternalRef(String(h.item_neutral).replace(/^item_/, ""), lang))?.name ?? h.item_neutral;
+        }
+        return entry;
+      }),
+    );
+  }
+  if (Array.isArray(p.buyback_log) && p.buyback_log.length > 0) {
+    out.buybacks = (p.buyback_log as { time: number }[]).map((b) => formatDuration(b.time));
   }
   if (includeBenchmarks && p.benchmarks != null) {
     out.benchmarks = p.benchmarks;
@@ -264,10 +366,50 @@ async function enrichMatchPlayer(p: RawPlayer, lang: SupportedLanguage, includeL
       }));
     out.obs_log = trimWardLog(p.obs_log);
     out.sen_log = trimWardLog(p.sen_log);
-    out.runes = p.runes;
     out.item_uses = p.item_uses;
     out.ability_uses = p.ability_uses;
     out.damage_targets = p.damage ?? undefined;
+  }
+  if (includeBreakdown) {
+    out.gold_sources = await labelCountMap(p.gold_reasons as Record<string, number> | undefined, async (k) =>
+      labelEnumKey(GOLD_REASON_LABELS, k),
+    );
+    out.xp_sources = await labelCountMap(p.xp_reasons as Record<string, number> | undefined, async (k) =>
+      labelEnumKey(XP_REASON_LABELS, k),
+    );
+    out.actions = await labelCountMap(p.actions as Record<string, number> | undefined, async (k) => {
+      try {
+        const raw = (await getOrderTypes())[k];
+        if (raw) return raw.replace(/^DOTA_UNIT_ORDER_/, "").replace(/_/g, " ").toLowerCase();
+      } catch {
+        /* fall through */
+      }
+      return `order_${k}`;
+    });
+    out.damage_sources = await labelCountMap(p.damage_inflictor as Record<string, number> | undefined, (k) =>
+      inflictorName(k, lang),
+    20,
+    );
+    out.killed = await labelCountMap(p.killed as Record<string, number> | undefined, (k) => unitLabel(k, lang), 15);
+    out.killed_by = await labelCountMap(p.killed_by as Record<string, number> | undefined, (k) => unitLabel(k, lang), 15);
+    if (Array.isArray(p.runes_log)) {
+      out.runes_log = (p.runes_log as { time: number; key: number }[]).map((r) => ({
+        time: formatDuration(r.time),
+        rune: labelEnumKey(RUNE_LABELS, r.key),
+      }));
+    }
+    if (p.item_uses) {
+      out.item_uses = await labelCountMap(p.item_uses as Record<string, number>, (k) =>
+        inflictorName(k, lang),
+      15,
+      );
+    }
+    if (p.ability_uses) {
+      out.ability_uses = await labelCountMap(p.ability_uses as Record<string, number>, (k) =>
+        inflictorName(k, lang),
+      15,
+      );
+    }
   }
   // Strip undefined/null keys for compactness.
   for (const k of Object.keys(out)) {
@@ -294,10 +436,15 @@ export async function enrichMatch(
     draft_timings: includeDraftTimings = false,
     player_logs: includePlayerLogs = false,
     benchmarks: includeBenchmarks = false,
+    breakdown: includeBreakdown = false,
   } = include;
 
   const players = Array.isArray(match.players)
-    ? await Promise.all(match.players.map((p: RawPlayer) => enrichMatchPlayer(p, lang, includePlayerLogs, includeBenchmarks)))
+    ? await Promise.all(
+        match.players.map((p: RawPlayer) =>
+          enrichMatchPlayer(p, lang, includePlayerLogs, includeBenchmarks, includeBreakdown),
+        ),
+      )
     : [];
   // Positions: prefer OpenDota's own position_est (behavior-based, available on parsed
   // matches); the lane+farm heuristic only fills players without a native estimate.
@@ -308,6 +455,18 @@ export async function enrichMatch(
     pl.position =
       typeof native === "number" && native >= 1 && native <= 5 ? native : positions[i];
   });
+
+  // Losing-team gold swing, computed from the per-minute advantage array (pure math).
+  let loserMaxLead: number | undefined;
+  let loserMaxDeficit: number | undefined;
+  if (Array.isArray(match.radiant_gold_adv) && match.radiant_gold_adv.length > 0 && match.radiant_win != null) {
+    const loserSign = match.radiant_win ? -1 : 1; // loser's advantage = radiant value * loserSign
+    for (const v of match.radiant_gold_adv as number[]) {
+      const loserAdv = v * loserSign;
+      loserMaxLead = Math.max(loserMaxLead ?? -Infinity, loserAdv);
+      loserMaxDeficit = Math.min(loserMaxDeficit ?? Infinity, loserAdv);
+    }
+  }
 
   const out: Record<string, unknown> = {
     match_id: match.match_id,
@@ -320,7 +479,17 @@ export async function enrichMatch(
     game_mode: (await gameModeName(match.game_mode)) ?? match.game_mode,
     lobby_type: (await lobbyTypeName(match.lobby_type)) ?? match.lobby_type,
     skill: skillLabel(match.skill),
-    region: await regionName(match.cluster),
+    region: (await regionName(match.region)) ?? (await regionName(match.cluster)),
+    patch: (await patchName(match.patch)) ?? match.patch,
+    parse_version: match.version,
+    human_players: match.human_players,
+    replay_url: match.replay_url,
+    radiant_towers_standing: decodeTowerStatus(match.tower_status_radiant),
+    dire_towers_standing: decodeTowerStatus(match.tower_status_dire),
+    radiant_barracks_standing: decodeBarracksStatus(match.barracks_status_radiant),
+    dire_barracks_standing: decodeBarracksStatus(match.barracks_status_dire),
+    losing_team_max_gold_lead: loserMaxLead != null && loserMaxLead > 0 ? Math.round(loserMaxLead) : undefined,
+    losing_team_max_gold_deficit: loserMaxDeficit != null && loserMaxDeficit < 0 ? Math.round(-loserMaxDeficit) : undefined,
     first_blood_time: formatDuration(match.first_blood_time),
     league: match.league?.name ?? undefined,
     radiant_team_name: match.radiant_team?.team_name ?? match.radiant_team?.name ?? undefined,
@@ -335,7 +504,8 @@ export async function enrichMatch(
     out.picks_bans = await Promise.all(
       match.picks_bans.map(async (pb: Record<string, any>) => ({
         order: pb.order,
-        team: pb.team === 2 ? "radiant" : pb.team === 3 ? "dire" : pb.team,
+        // CM drafts use team 2/3 (radiant/dire); non-CM recorded picks use 0/1.
+        team: pb.team === 0 || pb.team === 2 ? "radiant" : pb.team === 1 || pb.team === 3 ? "dire" : pb.team,
         is_pick: pb.is_pick,
         hero: await heroRef(pb.hero_id, lang),
       })),
@@ -360,7 +530,13 @@ export async function enrichMatch(
     );
   }
   if (includeObjectives && Array.isArray(match.objectives)) {
-    out.objectives = match.objectives;
+    out.objectives = match.objectives.map((o: Record<string, any>) => ({
+      time: formatDuration(o.time),
+      event: OBJECTIVE_LABELS[o.type as string] ?? o.type,
+      // key/slot semantics vary per event type (killer slot, hero id, building id) — kept raw.
+      key: o.key,
+      player_slot: o.player_slot,
+    }));
   }
   if (includeChat && Array.isArray(match.chat)) {
     out.chat = match.chat.map((c: any) => ({ ...c, time: formatDuration(c.time) }));

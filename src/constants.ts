@@ -88,26 +88,156 @@ export const SKILL_LABELS: Record<number, string> = {
 
 export const LANE_ROLE_LABELS: Record<number, string> = {
   0: "Unknown",
-  1: "Safe Lane (Pos 1)",
-  2: "Mid Lane (Pos 2)",
-  3: "Off Lane (Pos 3)",
+  1: "Safe",
+  2: "Mid",
+  3: "Off",
   4: "Jungle",
 };
 
-export const LEAVER_STATUS_LABELS: Record<number, string> = {
-  0: "None (played)",
-  1: "Left Safely (safe to leave)",
-  2: "Abandoned (safe to leave)",
-  3: "Abandoned (not safe to leave)",
-  4: "AfK (abandoned)",
-  5: "Never Connected",
-  6: "Never Connected (abandoned)",
-  7: "Failed to Ready Up",
-  8: "Declined",
+/** Absolute lanes — labels from OpenDota's official frontend i18n (lane_pos_*). */
+export const LANE_LABELS: Record<number, string> = {
+  1: "Bot",
+  2: "Mid",
+  3: "Top",
+  4: "Radiant Jungle",
+  5: "Dire Jungle",
 };
 
+/** Leaver statuses — labels from OpenDota's official frontend i18n. */
+export const LEAVER_STATUS_LABELS: Record<number, string> = {
+  0: "None",
+  1: "Left Safely",
+  2: "Abandoned (DC)",
+  3: "Abandoned",
+  4: "Abandoned (AFK)",
+  5: "Never Connected",
+  6: "Never Connected (Timeout)",
+};
+
+/** Gold income sources — labels from OpenDota's official frontend i18n (gold_reasons_*). */
+export const GOLD_REASON_LABELS: Record<number, string> = {
+  0: "Other",
+  1: "Death",
+  2: "Buyback",
+  11: "Building",
+  12: "Hero",
+  13: "Creep",
+  14: "Neutrals",
+  15: "Roshan",
+  17: "Bounty Rune",
+  20: "Ward",
+};
+
+/** XP sources — labels from OpenDota's official frontend i18n (xp_reasons_*). */
+export const XP_REASON_LABELS: Record<number, string> = {
+  0: "Other",
+  1: "Hero",
+  2: "Creep",
+  3: "Roshan",
+};
+
+/** Runes — labels from OpenDota's official frontend i18n (rune_*). */
+export const RUNE_LABELS: Record<number, string> = {
+  0: "Double Damage",
+  1: "Haste",
+  2: "Illusion",
+  3: "Invisibility",
+  4: "Regeneration",
+  5: "Bounty",
+  6: "Arcane",
+  7: "Water",
+  8: "Wisdom",
+  9: "Shield",
+};
+
+/** Kill streak lengths — Valve in-game announcer strings (not API-documented). */
+export const KILL_STREAK_LABELS: Record<number, string> = {
+  3: "Killing Spree",
+  4: "Dominating",
+  5: "Mega Kill",
+  6: "Unstoppable",
+  7: "Wicked Sick",
+  8: "Monster Kill",
+  9: "Godlike",
+  10: "Beyond Godlike",
+};
+
+/** Multi-kill sizes — Valve in-game announcer strings (not API-documented). */
+export const MULTI_KILL_LABELS: Record<number, string> = {
+  2: "Double Kill",
+  3: "Triple Kill",
+  4: "Ultra Kill",
+  5: "Rampage",
+};
+
+/** Match objective event types seen in parsed replays (odota/web MatchStory). */
+export const OBJECTIVE_LABELS: Record<string, string> = {
+  CHAT_MESSAGE_FIRSTBLOOD: "First Blood",
+  CHAT_MESSAGE_ROSHAN_KILL: "Roshan Kill",
+  CHAT_MESSAGE_TOWER_KILL: "Tower Kill",
+  CHAT_MESSAGE_TOWER_DENY: "Tower Deny",
+  CHAT_MESSAGE_BARRACKS_KILL: "Barracks Kill",
+  CHAT_MESSAGE_AEGIS: "Aegis Picked Up",
+  CHAT_MESSAGE_AEGIS_STOLEN: "Aegis Stolen",
+  CHAT_MESSAGE_DENIED_AEGIS: "Aegis Denied",
+  CHAT_MESSAGE_COURIER_LOST: "Courier Lost",
+  building_kill: "Building Kill",
+  chat: "Chat",
+};
+
+/** Label a gold/xp reason key, keeping the raw key visible when undocumented. */
+export function labelEnumKey(labels: Record<number, string>, key: string | number): string {
+  const n = Number(key);
+  return labels[n] ?? `reason_${key}`;
+}
+
+/** Relabel every key of a {enumKey: count} map, sorted by count descending. */
+export function labelEnumKeyMap(
+  labels: Record<number, string>,
+  map: Record<string, number> | undefined,
+): Record<string, number> | undefined {
+  if (!map) return undefined;
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(map).sort((a, b) => b[1] - a[1])) {
+    out[labelEnumKey(labels, k)] = v;
+  }
+  return out;
+}
+
+/**
+ * Decode a tower_status bitmask. Bit layout per Valve's GetMatchDetails docs:
+ * 0-2 top T1/T2/T3, 3-5 mid T1/T2/T3, 6-8 bottom T1/T2/T3, 9-10 ancient top/bottom.
+ * A set bit means the tower is still standing (spec: 2047 = everything alive).
+ */
+export function decodeTowerStatus(mask: number | undefined | null): Record<string, boolean> | undefined {
+  if (mask == null) return undefined;
+  const names = [
+    "top_t1", "top_t2", "top_t3",
+    "mid_t1", "mid_t2", "mid_t3",
+    "bot_t1", "bot_t2", "bot_t3",
+    "ancient_top", "ancient_bottom",
+  ];
+  const out: Record<string, boolean> = {};
+  names.forEach((n, i) => (out[n] = ((mask >> i) & 1) === 1));
+  out.all_standing = mask === 2047;
+  return out;
+}
+
+/**
+ * Decode a barracks_status bitmask. Bits per Valve docs:
+ * 0-1 top melee/ranged, 2-3 mid melee/ranged, 4-5 bottom melee/ranged.
+ */
+export function decodeBarracksStatus(mask: number | undefined | null): Record<string, boolean> | undefined {
+  if (mask == null) return undefined;
+  const names = ["top_melee", "top_ranged", "mid_melee", "mid_ranged", "bot_melee", "bot_ranged"];
+  const out: Record<string, boolean> = {};
+  names.forEach((n, i) => (out[n] = ((mask >> i) & 1) === 1));
+  out.all_standing = mask === 63;
+  return out;
+}
+
 const RANK_MEDALS = [
-  "Unknown",
+  "Uncalibrated",
   "Herald",
   "Guardian",
   "Crusader",
@@ -119,7 +249,8 @@ const RANK_MEDALS = [
 ];
 
 export function rankTierToLabel(rankTier?: number, leaderboardRank?: number | null): string | undefined {
-  if (rankTier == null || rankTier <= 0) return undefined;
+  if (rankTier == null) return undefined;
+  if (rankTier === 0) return "Uncalibrated";
   const medal = Math.floor(rankTier / 10);
   const stars = rankTier % 10;
   const medalName = RANK_MEDALS[medal] ?? `Rank ${medal}`;
@@ -130,6 +261,14 @@ export function rankTierToLabel(rankTier?: number, leaderboardRank?: number | nu
     return "Immortal";
   }
   return stars > 0 ? `${medalName} ${stars}` : medalName;
+}
+
+export function getOrderTypes(): Promise<Record<string, string>> {
+  return apiGet<Record<string, string>>("/constants/order_types", { ttl: "constants" });
+}
+
+export function getPermanentBuffs(): Promise<Record<string, string>> {
+  return apiGet<Record<string, string>>("/constants/permanent_buffs", { ttl: "constants" });
 }
 
 /** Get the name for an arbitrary constant resource (passthrough). */
