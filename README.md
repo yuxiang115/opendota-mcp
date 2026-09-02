@@ -108,12 +108,12 @@ Add to `claude_desktop_config.json` (Stores → Claude Desktop → config):
 | Tool | Description |
 |---|---|
 | `get_match` | Full match detail as a compact enriched view (heroes/items/abilities named, KDA/GPM/XPM per player, optional picks_bans/teamfights/objectives/chat/graphs/logs via `include`). |
-| `request_match_parse` | Submit a match for replay parsing (needed for deep data on unparsed matches). |
+| `request_match_parse` | Submit a match for replay parsing and poll until finished (default waits 45s; deep data then available via `get_match`). |
 | `get_parse_job_status` | Poll a parse job. |
 
 ### Players
 
-All player-match tools accept the standard OpenDota filters (`hero_id`, `game_mode`, `patch`, `date`, `win`, `lane_role`, `with_hero_id`, `against_hero_id`, `limit/offset`, ...).
+All player-match tools accept the standard OpenDota filters (`hero_id`, `game_mode`, `patch`, `date`, `win`, `lane_role`, `with_hero_id`, `against_hero_id`, `limit/offset`, ...). One deliberate default change: this server sends `significant=0` (ALL game modes, **Turbo included**) where OpenDota's own default silently hides Turbo games — pass `significant=1` for standard-mode-only stats.
 
 | Tool | Description |
 |---|---|
@@ -195,9 +195,12 @@ Pass `language` on any tool that returns game-entity names (`"schinese"`, `"zh-C
 npm install
 npm run build           # compile src/ → dist/
 npm run build:locales   # re-fetch Valve localization feeds → locales/
-npm run smoke           # end-to-end test over stdio with real API calls
+npm run integration     # end-to-end tests over stdio (incl. mock-upstream regression tests)
+npm run smoke           # quick end-to-end pass with real API calls
 npm run check           # typecheck only
 ```
+
+Game constants are cached in memory (24h TTL) and persisted under the OS tmpdir (`opendota-mcp-cache/`), so server restarts don't re-fetch them.
 
 Project layout:
 

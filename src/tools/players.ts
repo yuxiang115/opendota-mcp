@@ -14,6 +14,9 @@ function filtersOf(args: Record<string, unknown>): Record<string, unknown> {
   for (const key of Object.keys(playerFilterShape)) {
     if (args[key] !== undefined) out[key] = args[key];
   }
+  // Server default: include ALL game modes (Turbo included). OpenDota's own default
+  // (significant=1) silently hides Turbo games, which reads as "player hasn't played".
+  if (out.significant === undefined) out.significant = 0;
   return out;
 }
 
@@ -236,25 +239,50 @@ export const playerTools: ToolDef[] = [
   {
     name: "get_player_wardmap",
     description:
-      "Heatmap of observer/sentry ward placements for a player. Values are 64x64 grid-position -> count maps " +
-      "(x,y coordinates derived by dividing by 64).",
+      "Ward placement heatmap for a player: total observer/sentry counts plus the raw position maps " +
+      "(keys are x,y on a 64x64 grid — divide by 64 for map fraction; game coords = value*range/64).",
     schema: {
       account_id: accountId,
       ...playerFilterShape,
     },
     handler: async (args) => {
-      return apiGet(`/players/${args.account_id}/wardmap`, { query: toQuery(filtersOf(args)), ttl: "listing" });
+      // Structure is nested: { "<row>": { "<col>": count } } on a 64x64 grid.
+      const data = await apiGet<{ obs?: Record<string, Record<string, number>>; sen?: Record<string, Record<string, number>> }>(
+        `/players/${args.account_id}/wardmap`,
+        { query: toQuery(filtersOf(args)), ttl: "listing" },
+      );
+      const total = (m?: Record<string, Record<string, number>>) =>
+        Object.values(m ?? {}).reduce((s, row) => s + Object.values(row ?? {}).reduce((a, b) => a + b, 0), 0);
+      return {
+        observer_wards_total: total(data.obs),
+        sentry_wards_total: total(data.sen),
+        observer_positions: data.obs,
+        sentry_positions: data.sen,
+      };
     },
   },
   {
     name: "get_player_wordcloud",
-    description: "Word cloud of all words said (all_word_counts) and by the player (my_word_counts).",
+    description:
+      "Words said in this player's matches, sorted by count: words by the player (my_words) and by everyone " +
+      "(all_words). Useful for chat-toxicity or tilt flavor.",
     schema: {
       account_id: accountId,
       ...playerFilterShape,
+      limit: z.number().int().min(1).max(200).optional().describe("Top N words per list (default 50)."),
     },
     handler: async (args) => {
-      return apiGet(`/players/${args.account_id}/wordcloud`, { query: toQuery(filtersOf(args)), ttl: "listing" });
+      const data = await apiGet<{ my_word_counts?: Record<string, number>; all_word_counts?: Record<string, number> }>(
+        `/players/${args.account_id}/wordcloud`,
+        { query: toQuery(filtersOf(args)), ttl: "listing" },
+      );
+      const cap = args.limit ?? 50;
+      const top = (m?: Record<string, number>) =>
+        Object.entries(m ?? {})
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, cap)
+          .map(([word, count]) => ({ word, count }));
+      return { my_words: top(data.my_word_counts), all_words: top(data.all_word_counts) };
     },
   },
   {

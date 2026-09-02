@@ -55,7 +55,10 @@ export const playerFilterShape = {
     .min(0)
     .max(1)
     .optional()
-    .describe("1 (default) excludes non-standard modes; set 0 to include everything."),
+    .describe(
+      "0 (this server's default) includes ALL game modes including Turbo; " +
+        "1 = only standard/ranked-style modes (OpenDota's own default, which hides Turbo).",
+    ),
   having: z.number().int().optional().describe("Min games played (used by hero-stat tools)."),
   sort: z.string().optional().describe("Sort results by this field, descending (e.g. 'start_time')."),
 } as const satisfies z.ZodRawShape;

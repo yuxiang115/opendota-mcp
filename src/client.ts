@@ -1,3 +1,7 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import os from "node:os";
+import path from "node:path";
 import { CACHE_TTL, OPENDEOTA_API_KEY, OPENDOTA_BASE_URL, RATE_LIMIT_PER_MINUTE } from "./config.js";
 
 interface CacheEntry {
@@ -9,6 +13,37 @@ const cache = new Map<string, CacheEntry>();
 
 /** Concurrent identical GETs share a single upstream request (constants are hit once per row otherwise). */
 const inflight = new Map<string, Promise<unknown>>();
+
+/**
+ * Game constants are stable for hours but expensive to re-fetch on every process
+ * start, so persist them under the OS tmpdir and reuse across restarts.
+ */
+const DISK_DIR = path.join(os.tmpdir(), "opendota-mcp-cache");
+
+function diskFile(cacheKey: string): string {
+  // Hash so the api_key possibly embedded in the URL never reaches the filesystem in plaintext.
+  return path.join(DISK_DIR, `${createHash("sha1").update(cacheKey).digest("hex")}.json`);
+}
+
+function readDiskCache(cacheKey: string): CacheEntry | undefined {
+  try {
+    const file = diskFile(cacheKey);
+    if (!existsSync(file)) return undefined;
+    const entry = JSON.parse(readFileSync(file, "utf8")) as CacheEntry;
+    return entry?.expiresAt > Date.now() ? entry : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeDiskCache(cacheKey: string, entry: CacheEntry): void {
+  try {
+    mkdirSync(DISK_DIR, { recursive: true });
+    writeFileSync(diskFile(cacheKey), JSON.stringify(entry));
+  } catch {
+    /* disk cache is best-effort */
+  }
+}
 
 interface RateLimiterOptions {
   limitPerMinute: number;
@@ -105,6 +140,13 @@ export async function apiGet<T>(path: string, options: RequestOptions = {}): Pro
     if (hit && hit.expiresAt > Date.now()) {
       return hit.data as T;
     }
+    if (options.ttl === "constants") {
+      const diskHit = readDiskCache(cacheKey);
+      if (diskHit) {
+        cache.set(cacheKey, diskHit);
+        return diskHit.data as T;
+      }
+    }
     const pending = inflight.get(cacheKey);
     if (pending) return pending as Promise<T>;
   }
@@ -151,7 +193,9 @@ export async function apiGet<T>(path: string, options: RequestOptions = {}): Pro
         throw new OpenDotaApiError(`OpenDota returned invalid JSON for ${path}`, 502, url);
       }
       if (method === "GET") {
-        cache.set(cacheKey, { expiresAt: Date.now() + ttlMs(options.ttl), data });
+        const entry: CacheEntry = { expiresAt: Date.now() + ttlMs(options.ttl), data };
+        cache.set(cacheKey, entry);
+        if (options.ttl === "constants") writeDiskCache(cacheKey, entry);
       }
       return data as T;
     } catch (err) {

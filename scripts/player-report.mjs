@@ -37,8 +37,8 @@ console.log(`\n最近 ${pool.length} 场（${ranked.length >= 5 ? "排位" : "�
 console.log(`场均 KDA: ${avg("kills")}/${avg("deaths")}/${avg("assists")} | 场均 GPM ${avg("gold_per_min")} XPM ${avg("xp_per_min")} 正补 ${avg("last_hits")}`);
 console.log(`平均分段: ${pool.find((m) => m.average_rank)?.average_rank ?? "?"}`);
 
-// 3. Last 30 days hero pool (significant:0 keeps Turbo games, which default filters drop)
-const heroes = await call("get_player_heroes", { account_id: accountId, date: 30, significant: 0, language });
+// 3. Last 30 days hero pool (server defaults to significant=0, so Turbo games count)
+const heroes = await call("get_player_heroes", { account_id: accountId, date: 30, language });
 const played = heroes.filter((h) => h.games > 0).slice(0, 8);
 console.log(`\n近30天英雄池（${heroes.filter((h) => h.games > 0).length} 个英雄）:`);
 for (const h of played) {

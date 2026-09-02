@@ -23,7 +23,7 @@ async function call(name, args) {
 }
 
 // 1. Rank recent matches: wins scored by KDA weighted with participation & economy
-const matches = await call("get_player_matches", { account_id: accountId, significant: 0, limit: 100 });
+const matches = await call("get_player_matches", { account_id: accountId, limit: 100 });
 const wins = matches.filter((m) => m.win);
 const score = (m) => (m.kda ?? 0) * 10 + (m.gold_per_min ?? 0) / 100 + ((m.assists ?? 0) / 100);
 wins.sort((a, b) => score(b) - score(a));

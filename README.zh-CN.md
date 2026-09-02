@@ -93,7 +93,7 @@ claude mcp add opendota -- npx opendota-mcp
 
 - **查询入口**：`search_dota_entities`（名称→ID，先调这个）、`search_players`（玩家名→account id）、`list_supported_languages`、`get_api_health`、`get_constants`
 - **比赛**：`get_match`（紧凑增强视图，英雄/物品/技能全部带名称，可选 picks_bans/teamfights/chat/经济曲线等）、`request_match_parse`、`get_parse_job_status`
-- **玩家**（15 个）：档案+段位、最近比赛、筛选战绩、胜率统计、英雄池、常一起玩的玩家、生涯总计、分布直方图、眼位图、词云、段位历史、英雄排名、刷新历史 等
+- **玩家**（15 个）：档案+段位、最近比赛、筛选战绩、胜率统计、英雄池、常一起玩的玩家、生涯总计、分布直方图、眼位图、词云、段位历史、英雄排名、刷新历史 等。**默认口径**：本服务端对筛选工具默认传 `significant=0`（包含 Turbo 等全部模式，OpenDota 官方默认会静默滤掉 Turbo）；只要标准模式请显式传 `significant=1`
 - **英雄**（9 个）：英雄列表、全分段选取/胜率、克制关系（matchups）、基准分、物品热度、时长胜率曲线、英雄玩家榜 等
 - **战队/职业/直播**（8 个）：战队列表与档案、战队比赛/成员/英雄池、职业比赛、职业选手、联赛、直播对局
 

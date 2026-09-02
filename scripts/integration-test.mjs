@@ -168,6 +168,54 @@ try {
 }
 
 // ─────────────────────────────────────────────────────────────
+console.log("\n■ Regression F — request coalescing (mock upstream, exact request counts)");
+{
+  const hits = {};
+  const mock = (await import("node:http")).createServer((req, res) => {
+    const path = req.url.replace(/^\/api/, "").split("?")[0];
+    hits[path] = (hits[path] ?? 0) + 1;
+    res.setHeader("content-type", "application/json");
+    if (path === "/players/1/recentMatches") {
+      // 20 identical rows: each enriched row resolves hero/game_mode/lobby_type
+      const row = { player_slot: 0, radiant_win: true, hero_id: 1, game_mode: 22, lobby_type: 7, duration: 1200, start_time: 1700000000, kills: 5, deaths: 2, assists: 8 };
+      res.end(JSON.stringify(Array.from({ length: 20 }, () => ({ ...row }))));
+    } else if (path === "/constants/heroes") {
+      res.end(JSON.stringify({ 1: { id: 1, name: "npc_dota_hero_antimage", localized_name: "Anti-Mage" } }));
+    } else if (path === "/constants/game_mode" || path === "/constants/lobby_type") {
+      res.end(JSON.stringify({ 22: { id: 22, name: "game_mode_all_draft" }, 7: { id: 7, name: "lobby_type_ranked" } }));
+    } else {
+      res.end("{}");
+    }
+  });
+  await new Promise((r) => mock.listen(0, "127.0.0.1", r));
+  const port = mock.address().port;
+  const mockClient = await boot({ OPENDOTA_BASE_URL: `http://127.0.0.1:${port}/api`, OPENDOTA_RATE_LIMIT: "1000" });
+  const rows = await call(mockClient, "get_player_recent_matches", { account_id: 1 });
+  ok("mock returns 20 enriched rows", rows.length === 20 && rows[0].hero?.name_en === "Anti-Mage", `rows=${rows.length}`);
+  ok(
+    "fan-out coalesced: 1 upstream request per constants resource",
+    hits["/constants/heroes"] === 1 && hits["/constants/game_mode"] === 1 && hits["/constants/lobby_type"] === 1,
+    JSON.stringify(hits),
+  );
+  ok("row has computed kda and win", typeof rows[0].kda === "number" && rows[0].win === true);
+  await mockClient.close();
+  mock.close();
+}
+
+// ─────────────────────────────────────────────────────────────
+console.log("\n■ Regression G — default significant=0 keeps Turbo players visible (live)");
+{
+  const client4 = await boot();
+  const heroes = await call(client4, "get_player_heroes", { account_id: 48645517, date: 30 });
+  ok("turbo-only player has a hero pool by default", heroes.some((h) => h.games > 0), `heroes with games: ${heroes.filter((h) => h.games > 0).length}`);
+  const strict = await call(client4, "get_player_heroes", { account_id: 48645517, date: 30, significant: 1 });
+  ok("significant=1 still available for standard-mode-only stats", Array.isArray(strict));
+  const recent = await call(client4, "get_player_recent_matches", { account_id: 48645517 });
+  ok("kda present on recent-match rows", recent.every((m) => typeof m.kda === "number"));
+  await client4.close();
+}
+
+// ─────────────────────────────────────────────────────────────
 console.log(`\n═══ 结果: ${passed} passed, ${failed} failed ═══`);
 if (failures.length) {
   console.log("Failures:");
