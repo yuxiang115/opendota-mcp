@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { CACHE_TTL, OPENDEOTA_API_KEY, OPENDOTA_BASE_URL, RATE_LIMIT_PER_MINUTE } from "./config.js";
 
 interface CacheEntry {
@@ -11,7 +12,7 @@ interface CacheEntry {
   data: unknown;
 }
 
-const DISK_CACHE_VERSION = 2;
+const DISK_CACHE_VERSION = 3;
 
 const cache = new Map<string, CacheEntry>();
 
@@ -23,6 +24,65 @@ const inflight = new Map<string, Promise<unknown>>();
  * start, so persist them under the OS tmpdir and reuse across restarts.
  */
 const DISK_DIR = path.join(os.tmpdir(), "opendota-mcp-cache");
+
+/** Shipped static constants seed (see scripts/build-data.ts); the runtime patch probe decides whether to also refresh from the API. */
+const BUNDLE_DIR = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../constants-bundle",
+);
+
+export interface BundleManifest {
+  bundled_at?: string;
+  max_patch_id?: number;
+  resources?: string[];
+}
+
+export function readBundleManifest(): BundleManifest | undefined {
+  try {
+    const file = path.join(BUNDLE_DIR, "manifest.json");
+    if (!existsSync(file)) return undefined;
+    return JSON.parse(readFileSync(file, "utf8")) as BundleManifest;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Seed the constants cache from the shipped bundle: each resource is written
+ * into memory + disk cache (1h TTL, so SWR keeps refreshing it hourly).
+ * Keys are computed with the current base URL/api key, so custom instances
+ * only pick up seeds when explicitly enabled. Returns the seeded resource names.
+ */
+export function seedConstantsFromBundle(): string[] {
+  const manifest = readBundleManifest();
+  if (!manifest?.resources) return [];
+  const seeded: string[] = [];
+  for (const resource of manifest.resources) {
+    try {
+      const file = path.join(BUNDLE_DIR, `${resource}.json`);
+      if (!existsSync(file)) continue;
+      const data = JSON.parse(readFileSync(file, "utf8"));
+      const cacheKey = `GET ${buildUrl(`/constants/${resource}`, {})}`;
+      const entry: CacheEntry = { expiresAt: Date.now() + CACHE_TTL.constants, data };
+      cache.set(cacheKey, entry);
+      writeDiskCache(cacheKey, entry);
+      seeded.push(resource);
+    } catch {
+      /* skip unreadable resource */
+    }
+  }
+  return seeded;
+}
+
+/** Resources force-refreshed after an id miss; at most once per process per resource. */
+const healedResources = new Set<string>();
+
+/** Negative-lookup self-heal: an unknown hero/item id means our constants may be stale — refresh that resource once. */
+export function healResource(pathname: string): void {
+  if (healedResources.has(pathname)) return;
+  healedResources.add(pathname);
+  apiGet(pathname, { ttl: "constants", forceRefresh: true }).catch(() => {});
+}
 
 function diskFile(cacheKey: string): string {
   // Hash so the api_key possibly embedded in the URL never reaches the filesystem in plaintext.

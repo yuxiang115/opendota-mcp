@@ -1,0 +1,35 @@
+name: refresh-data
+
+# Daily: rebuild the shipped locales + constants bundle. The data is static
+# between Dota patches, so the commit is a no-op unless Valve/OpenDota shipped
+# something new (git diff check skips empty commits).
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run build:data
+      - name: Commit refreshed data if changed
+        run: |
+          git config user.name "opendota-mcp-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add locales constants-bundle
+          if git diff --cached --quiet; then
+            echo "No data changes — bundle still fresh."
+          else
+            git commit -m "chore(data): refresh locales + constants bundle (auto)"
+            git push
+          fi

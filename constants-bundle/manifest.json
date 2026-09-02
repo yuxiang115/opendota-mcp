@@ -1,0 +1,21 @@
+{
+  "bundled_at": "2026-09-02T02:31:29.065Z",
+  "max_patch_id": 60,
+  "resources": [
+    "heroes",
+    "items",
+    "item_ids",
+    "abilities",
+    "ability_ids",
+    "game_mode",
+    "lobby_type",
+    "region",
+    "patch",
+    "cluster",
+    "chat_wheel",
+    "permanent_buffs",
+    "order_types",
+    "hero_abilities",
+    "countries"
+  ]
+}

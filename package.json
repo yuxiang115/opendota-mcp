@@ -1,7 +1,7 @@
 {
   "name": "opendota-mcp",
-  "version": "0.5.1",
-  "description": "MCP server for the OpenDota API with full data mapping and 26-language Dota 2 localization",
+  "version": "0.6.0",
+  "description": "MCP server for the OpenDota API with full data mapping and 28-language Dota 2 localization",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -14,6 +14,7 @@
   "files": [
     "dist",
     "locales",
+    "constants-bundle",
     "README.md",
     "LICENSE"
   ],
@@ -22,11 +23,13 @@
   },
   "scripts": {
     "build": "tsc",
-    "build:locales": "tsx scripts/build-locales.ts",
+    "build:data": "tsx scripts/build-data.ts",
+    "build:locales": "tsx scripts/build-data.ts",
     "dev": "tsc --watch",
     "start": "node dist/index.js",
     "smoke": "node scripts/smoke-test.mjs",
     "integration": "node scripts/integration-test.mjs",
+    "count": "node scripts/count-requests.mjs",
     "check": "tsc --noEmit"
   },
   "keywords": [

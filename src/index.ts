@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { DEFAULT_LANGUAGE } from "./config.js";
+import { DEFAULT_LANGUAGE, shouldSeedBundle } from "./config.js";
 import { normalizeLanguage } from "./locales.js";
 import { matchTools } from "./tools/matches.js";
 import { playerTools } from "./tools/players.js";
@@ -13,16 +13,22 @@ import { teamTools } from "./tools/teams.js";
 import {
   getAbilities,
   getAbilityIds,
+  getChatWheel,
+  getCountries,
   getGameModes,
+  getHeroAbilities,
   getHeroes,
   getItemIds,
   getItems,
   getLobbyTypes,
+  getOrderTypes,
+  getPermanentBuffs,
   getPatches,
   getRegions,
 } from "./constants.js";
+import { apiGet, readBundleManifest, seedConstantsFromBundle } from "./client.js";
 
-const PACKAGE_VERSION = "0.5.1";
+const PACKAGE_VERSION = "0.6.0";
 
 const allTools: ToolDef[] = [
   ...systemTools,
@@ -62,8 +68,42 @@ for (const tool of allTools) {
 }
 
 async function main(): Promise<void> {
-  // Pre-warm the constants cache in the background so the first enriched
-  // response (match rows resolve heroes/modes per player) is fast.
+  // Boot sequence: one small patch probe (noCache) is the only network cost of
+  // a cold start. Compare it to the shipped bundle manifest, then seed the
+  // constants cache from the bundle. If the API knows a newer patch (new
+  // heroes/items ship with patches), refresh every constants resource in the
+  // background so they appear within seconds. SWR keeps the seeded entries
+  // fresh hourly after that. A failed probe (offline/degraded API) just runs
+  // on the bundle; custom OPENDOTA_BASE_URL instances skip seeding entirely.
+  const manifest = readBundleManifest();
+  if (shouldSeedBundle()) {
+    let apiMaxPatch: number | undefined;
+    try {
+      const patches = await apiGet<{ id?: number }[]>("/constants/patch", {
+        ttl: "constants",
+        noCache: true,
+      });
+      apiMaxPatch = patches.reduce((max, p) => Math.max(max, p.id ?? 0), 0);
+    } catch {
+      /* offline or degraded — seed and continue */
+    }
+    const seeded = seedConstantsFromBundle();
+    const stale =
+      apiMaxPatch != null && manifest?.max_patch_id != null && apiMaxPatch > manifest.max_patch_id;
+    console.error(
+      `boot: seeded ${seeded.length} constants from bundle` +
+        (apiMaxPatch != null ? `, api patch ${apiMaxPatch} vs bundled ${manifest?.max_patch_id}` : ", probe failed") +
+        (stale ? " — newer patch detected, refreshing constants" : ""),
+    );
+    if (stale) {
+      for (const resource of manifest?.resources ?? []) {
+        apiGet(`/constants/${resource}`, { ttl: "constants", forceRefresh: true }).catch(() => {});
+      }
+    }
+  }
+  // Pre-warm whatever the bundle did not cover so the first enriched response
+  // never blocks on a serial constants fetch. All parallel; with a seeded
+  // bundle these are cache hits and cost zero requests.
   for (const load of [
     getHeroes,
     getItems,
@@ -74,6 +114,11 @@ async function main(): Promise<void> {
     getLobbyTypes,
     getRegions,
     getPatches,
+    getHeroAbilities,
+    getPermanentBuffs,
+    getChatWheel,
+    getOrderTypes,
+    getCountries,
   ]) {
     load().catch(() => {});
   }

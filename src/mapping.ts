@@ -15,6 +15,7 @@ import {
   rankTierToLabel,
   SKILL_LABELS,
 } from "./constants.js";
+import { healResource } from "./client.js";
 
 /** A resolvable game-entity reference: numeric id + localized name + English name. */
 export interface NameRef {
@@ -34,6 +35,10 @@ export async function heroRef(heroId: number | undefined | null, lang: Supported
     fallbackEn = (await getHeroes())[key]?.localized_name;
   } catch {
     fallbackEn = undefined;
+  }
+  if (local == null && english == null && fallbackEn == null) {
+    // Unknown hero id — our tables may predate a new patch. Refresh once.
+    healResource("/constants/heroes");
   }
   const name = local?.name ?? english?.name ?? fallbackEn ?? `hero ${heroId}`;
   const nameEn = english?.name ?? local?.name_en ?? fallbackEn ?? `hero ${heroId}`;
@@ -56,7 +61,10 @@ export async function itemRef(itemId: number | undefined | null, lang: Supported
   // Fall back to OpenDota constants (item_ids -> items).
   try {
     const internal = (await getItemIds())[key];
-    if (!internal) return { id: Number(itemId), name: `item ${itemId}`, name_en: `item ${itemId}` };
+    if (!internal) {
+      healResource("/constants/item_ids");
+      return { id: Number(itemId), name: `item ${itemId}`, name_en: `item ${itemId}` };
+    }
     const dname = (await getItems())[internal]?.dname ?? internal;
     return { id: Number(itemId), name: dname, name_en: dname };
   } catch {

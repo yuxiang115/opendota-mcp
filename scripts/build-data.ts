@@ -1,16 +1,13 @@
 /**
- * Build script: fetch Valve's official Dota 2 datafeed for every supported
- * language and write compact locale tables under locales/<lang>/.
+ * Build script: regenerates all shipped static data. Run: npm run build:data
  *
- *   heroes.json     { "<hero_id>":    { name, name_en, internal } }
- *   items.json      { "<item_id>":    { name, name_en, internal } }
- *   abilities.json  { "<ability_id>": { name, name_en, internal } }
- *
- * Sources:
- *   https://www.dota2.com/datafeed/herolist?language=<code>
- *   https://www.dota2.com/datafeed/itemlist?language=<code>   (also contains abilities)
- *
- * Run: npm run build:locales
+ *   locales/<lang>/{heroes,items,abilities}.json — names in 28 languages from
+ *     Valve's official datafeed (herolist/itemlist/abilitylist).
+ *   constants-bundle/<resource>.json — OpenDota game constants, used at
+ *     runtime as a seed for the constants cache so a cold start needs only a
+ *     patch-probe request instead of ~9 fetches (see src/index.ts).
+ *   constants-bundle/manifest.json — { bundled_at, max_patch_id }; the boot
+ *     probe compares max_patch_id and refreshes constants when the API is newer.
  */
 import { mkdirSync, writeFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
@@ -139,6 +136,36 @@ function printDirSize(): string {
   return `${(total / 1024).toFixed(0)} KiB`;
 }
 
+async function buildConstantsBundle(): Promise<void> {
+  const BUNDLE_DIR = path.resolve(__dirname, "../constants-bundle");
+  rmSync(BUNDLE_DIR, { recursive: true, force: true });
+  mkdirSync(BUNDLE_DIR, { recursive: true });
+  const RESOURCES = [
+    "heroes", "items", "item_ids", "abilities", "ability_ids", "game_mode",
+    "lobby_type", "region", "patch", "cluster", "chat_wheel", "permanent_buffs",
+    "order_types", "hero_abilities", "countries",
+  ];
+  let maxPatchId = 0;
+  let totalBytes = 0;
+  for (const resource of RESOURCES) {
+    const res = await fetch(`https://api.opendota.com/api/constants/${resource}`, {
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status} for ${resource}`);
+    const data = await res.json();
+    const text = JSON.stringify(data);
+    writeFileSync(path.join(BUNDLE_DIR, `${resource}.json`), text, "utf8");
+    totalBytes += text.length;
+    if (resource === "patch" && Array.isArray(data)) {
+      maxPatchId = data.reduce((max: number, p: { id?: number }) => Math.max(max, p.id ?? 0), 0);
+    }
+    console.log(`✓ constants/${resource} (${(text.length / 1024).toFixed(0)} KiB)`);
+  }
+  const manifest = { bundled_at: new Date().toISOString(), max_patch_id: maxPatchId, resources: RESOURCES };
+  writeFileSync(path.join(BUNDLE_DIR, "manifest.json"), JSON.stringify(manifest, null, 2), "utf8");
+  console.log(`✓ manifest { max_patch_id: ${maxPatchId} } — bundle total ${(totalBytes / 1024 / 1024).toFixed(1)} MiB`);
+}
+
 async function main() {
   rmSync(LOCALES_DIR, { recursive: true, force: true });
   mkdirSync(LOCALES_DIR, { recursive: true });
@@ -161,6 +188,7 @@ async function main() {
     console.error(`Failed languages: ${failures.join(", ")}`);
     process.exitCode = 1;
   }
+  await buildConstantsBundle();
 }
 
 main().catch((err) => {

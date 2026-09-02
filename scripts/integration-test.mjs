@@ -491,6 +491,72 @@ console.log("\n■ Regression M — unparsed match shape (basic data, degraded p
 }
 
 // ─────────────────────────────────────────────────────────────
+console.log("\n■ Regression N — bundle seed + patch probe + negative-lookup heal (request accounting)");
+{
+  const mkMatch = (heroId) => ({
+    match_id: 474747, radiant_win: true, radiant_score: 5, dire_score: 5, duration: 1500,
+    start_time: 1700000000, game_mode: 22, lobby_type: 7, region: 1, patch: 60,
+    picks_bans: [], od_data: { has_parsed: false },
+    players: Array.from({ length: 10 }, (_, i) => ({
+      player_slot: i < 5 ? i : 128 + (i - 5), account_id: 5000 + i, hero_id: (i === 0) ? heroId : (i % 10) + 1,
+      kills: 1, deaths: 1, assists: 1, level: 20, gold_per_min: 600, item_0: 1,
+      radiant_win: true, duration: 1500, start_time: 1700000000, game_mode: 22,
+    })),
+  });
+  const hits = [];
+  let patchResponse = [{ id: 60, name: "7.41" }];
+  let matchResponse = mkMatch(1);
+  const mock = (await import("node:http")).createServer((req, res) => {
+    const p = req.url.replace(/^\/api/, "").split("?")[0];
+    hits.push(p);
+    res.setHeader("content-type", "application/json");
+    if (p === "/constants/patch") res.end(JSON.stringify(patchResponse));
+    else if (p === "/matches/474747") res.end(JSON.stringify(matchResponse));
+    else if (p.startsWith("/constants/")) res.end("{}");
+    else res.end("{}");
+  });
+  await new Promise((r) => mock.listen(0, "127.0.0.1", r));
+  const port = mock.address().port;
+  const base = { OPENDOTA_BASE_URL: `http://127.0.0.1:${port}/api`, OPENDOTA_BUNDLE_SEED: "1" };
+
+  // Scenario 1: probe matches bundled patch id -> cold boot + full get_match = exactly 2 requests
+  {
+    const mc = await boot(base);
+    await new Promise((r) => setTimeout(r, 500));
+    hits.length = 0;
+    const m = await call(mc, "get_match", { match_id: 474747, include: { breakdown: true, chat: true } });
+    ok("probe-match: full get_match costs exactly 1 upstream request", hits.length === 1 && hits[0] === "/matches/474747", hits.join(","));
+    ok("bundle-seeded enrichment still resolves names", m.players[1].hero?.name_en != null, JSON.stringify(m.players[1].hero));
+    await mc.close();
+  }
+
+  // Scenario 2: probe sees a newer patch id -> all bundled constants refresh in background
+  {
+    patchResponse = [{ id: 99, name: "9.99" }];
+    const mc = await boot(base);
+    await new Promise((r) => setTimeout(r, 800));
+    const refreshed = hits.filter((h) => h.startsWith("/constants/") && h !== "/constants/patch");
+    ok("stale bundle: probe triggers background refresh of bundled constants", refreshed.length >= 14, `${refreshed.length} refreshes: ${[...new Set(refreshed)].slice(0, 5).join(",")}…`);
+    await mc.close();
+    patchResponse = [{ id: 60, name: "7.41" }];
+  }
+
+  // Scenario 3: unknown hero id -> negative-lookup heal refreshes heroes once
+  {
+    const mc = await boot(base);
+    await new Promise((r) => setTimeout(r, 500));
+    hits.length = 0;
+    matchResponse = mkMatch(9999); // hero id absent from every table
+    await call(mc, "get_match", { match_id: 474747 });
+    await new Promise((r) => setTimeout(r, 400));
+    ok("unknown hero id heals /constants/heroes exactly once", hits.filter((h) => h === "/constants/heroes").length === 1, hits.join(","));
+    matchResponse = mkMatch(1);
+    await mc.close();
+  }
+  mock.close();
+}
+
+// ─────────────────────────────────────────────────────────────
 console.log(`\n═══ 结果: ${passed} passed, ${failed} failed ═══`);
 if (failures.length) {
   console.log("Failures:");

@@ -13,6 +13,21 @@ export const OPENDEOTA_API_KEY = process.env.OPENDOTA_API_KEY ?? "";
 export const OPENDOTA_BASE_URL =
   process.env.OPENDOTA_BASE_URL ?? "https://api.opendota.com/api";
 
+const DEFAULT_BASE_URL = "https://api.opendota.com/api";
+
+/**
+ * Whether the shipped constants bundle seeds the cache at boot.
+ * "auto" (default): only when targeting the default OpenDota API — custom
+ * instances may serve different data, so they keep fetching from their source.
+ * "1"/"0" force the behavior on/off (used by tests).
+ */
+export function shouldSeedBundle(): boolean {
+  const flag = (process.env.OPENDOTA_BUNDLE_SEED ?? "auto").toLowerCase();
+  if (flag === "1" || flag === "true" || flag === "on") return true;
+  if (flag === "0" || flag === "false" || flag === "off") return false;
+  return OPENDOTA_BASE_URL === DEFAULT_BASE_URL;
+}
+
 /** Requests per minute allowed by the OpenDota API (free tier: 60). We keep a small safety margin. */
 export const RATE_LIMIT_PER_MINUTE = Number(
   process.env.OPENDOTA_RATE_LIMIT ?? (OPENDEOTA_API_KEY ? 1200 : 55),
