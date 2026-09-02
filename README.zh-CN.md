@@ -137,6 +137,11 @@ token。想用自己的凭证、不占用管理员配额，在客户端配置里
 | `X-OpenDota-Key` | 你自己的 [OpenDota API key](https://www.opendota.com/api-keys)（免费 60/分钟 → 3000/分钟）。 |
 | `X-Stratz-Token` | 你自己的 [STRATZ token](https://stratz.com/api)——10 个分段/位置工具会为你的会话点亮，即使服务器没配。 |
 
+严格自带凭证模式：服务器的上游凭证环境变量完全留空。不带头的调用者仍能使
+用全部 OpenDota 工具（免费层，按服务器 IP 共享 60 次/分钟）；STRATZ 工具只是
+不出现在他们的工具列表里。没有报错、没有降级警告——每个会话看到的就是它的
+凭证解锁的那部分。
+
 Claude Code：
 
 ```bash

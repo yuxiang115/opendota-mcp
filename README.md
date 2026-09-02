@@ -160,6 +160,12 @@ server bills each request to the caller's keys:
 | `X-OpenDota-Key` | Your [OpenDota API key](https://www.opendota.com/api-keys) (60/min free → 3000/min). |
 | `X-Stratz-Token` | Your [STRATZ token](https://stratz.com/api) — the 10 bracket/position tools light up for your session even if the server has none configured. |
 
+Strict bring-your-own server: leave the upstream env credentials unset
+entirely. Callers without headers still get every OpenDota tool on the free
+tier (60 req/min shared per server IP); the STRATZ tools simply do not appear
+in their tool list. No errors, no degraded warnings — each session sees
+exactly what its credentials unlock.
+
 Claude Code:
 
 ```bash
