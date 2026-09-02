@@ -8,13 +8,14 @@ Built so an agent can answer questions like *"敌法师克制哪些英雄？"*, 
 
 ## Highlights
 
-- **52 tools** covering the whole public OpenDota API (61 with an optional STRATZ token): matches, players, heroes, teams, pro scene, leagues, live games, scenarios, raw SQL explorer, constants, search, and replay-parse submission.
+- **54 tools** covering the whole public OpenDota API (64 with an optional STRATZ token): matches, players, heroes, teams, pro scene, leagues, live games, scenarios, raw SQL explorer, constants, search, and replay-parse submission.
 - **Data mapping for LLMs** — responses are compact and readable out of the box:
   - `hero_id: 53` → `hero: { id: 53, name: "自然先知", name_en: "Nature's Prophet" }`
   - `game_mode: 22` → `"All Draft"`, `lobby_type: 7` → `"Ranked"`, `rank_tier: 55` → `"Legend 5"`
   - durations → `"37:22"`, timestamps → ISO, per-player KDA/win/side computed, win rates pre-calculated
 - **Statistically honest aggregates**: every win rate carries a 95% confidence half-width (`win_rate_ci95_pp`) and small samples are flagged `low_sample`, so agents say "countered, 62% ± 4" instead of quoting noise as fact.
 - **28 languages** for hero/item/ability names (English, 简体中文, 繁體中文, Русский, Español, Português, Français, Deutsch, 日本語, 한국어, ไทย, Tiếng Việt, Türkçe, + more), generated from Valve's official localized game data. Per-tool `language` parameter or a global default via env.
+- **Community nicknames (黑话)**: 火猫, 大骨灰, 白牛, 跳刀, BKB ... 180+ curated nickname mappings work anywhere a name is accepted; ambiguous ones (猴子/ES) return candidates so the agent asks instead of guessing (see below).
 - **Agent-friendly entry points**: `search_dota_entities` resolves any localized or English name ("敌法师", "blink dagger", "祈求者") to the ids other tools need; `search_players` finds account ids by display name.
 - **Optional STRATZ layer** (`STRATZ_API_TOKEN`, free): ten rank-bracket/position-split aggregate tools with full-pool samples — bracket counters, item builds, talent/skill stats, lane matchups, position stats, patch trends, counter-pick and full lineup composition analysis with data-backed coaching notes.
 - **Guidance baked in**: 4 registered MCP prompts (`match-analysis`, `player-review`, `hero-guide`, `meta-report`) plus a loadable [Agent Skill](./skill/SKILL.md) encoding the full analysis playbook.
@@ -331,6 +332,7 @@ src/
 ├── config.ts       # env handling
 ├── client.ts       # OpenDota HTTP client: rate limiting, caching, errors
 ├── constants.ts    # OpenDota constants loaders + enum labels
+├── aliases.ts      # community nickname tables + user extension
 ├── locales.ts      # 28-language name tables + language normalization
 ├── mapping.ts      # id→name resolution, enum→label, row enrichment
 ├── enrich.ts       # match/heroStats/itemPopularity transformers
