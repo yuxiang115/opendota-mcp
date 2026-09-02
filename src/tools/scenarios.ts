@@ -183,6 +183,79 @@ export const scenarioTools: ToolDef[] = [
     },
   },
   {
+    name: "get_hero_synergy",
+    description:
+      "ALLY synergy for a hero: win rates of hero pairings on the SAME team ('PA + Earthshaker: " +
+      "62% over 40 games'), aggregated by SQL from parsed public matches. Without ally_hero_id it " +
+      "returns the best and worst common allies. This is the same-team counterpart of " +
+      "get_hero_matchups (enemies). Sample = parsed matches only — always check games before " +
+      "trusting a percentage.",
+    schema: {
+      hero_id: heroIdParam,
+      ally_hero_id: z.number().int().positive().optional().describe("Restrict to one ally hero."),
+      days: z.number().int().min(30).max(365).optional().describe("Lookback window (default 180 — synergy needs a wide sample)."),
+      min_games: z.number().int().min(1).optional().describe("Min games per pair (default 5)."),
+      language: languageParam,
+    },
+    handler: async (args, ctx) => {
+      const lang = effectiveLanguage(args.language, ctx);
+      const days = args.days ?? 180;
+      const minGames = args.min_games ?? 5;
+      const heroRefLazy = (await import("../mapping.js")).heroRef;
+      const base =
+        "FROM player_matches a JOIN player_matches b ON a.match_id = b.match_id " +
+        "AND (a.player_slot < 128) = (b.player_slot < 128) AND a.player_slot <> b.player_slot " +
+        `JOIN matches m ON a.match_id = m.match_id WHERE a.hero_id = ${args.hero_id} ` +
+        `AND m.start_time > extract(epoch from now()) - ${days * 86400}`;
+      if (args.ally_hero_id != null) {
+        const sql = `SELECT count(*) AS games, sum(CASE WHEN m.radiant_win = (a.player_slot < 128) THEN 1 ELSE 0 END) AS wins ${base} AND b.hero_id = ${args.ally_hero_id}`;
+        const res = await apiGet<{ rows?: { games: number; wins: number }[] }>("/explorer", { query: { sql }, ttl: "listing", timeoutMs: 20_000 });
+        const r = res.rows?.[0];
+        const games = Number(r?.games ?? 0);
+        const [h1, h2] = await Promise.all([heroRefLazy(args.hero_id, lang), heroRefLazy(args.ally_hero_id, lang)]);
+        return {
+          pair: [h1?.name, h2?.name],
+          games,
+          win_rate_pct: games > 0 ? winRate(Number(r?.wins ?? 0), games) : undefined,
+          days,
+          note: games < minGames ? "Sample too small for conclusions." : undefined,
+        };
+      }
+      const sql =
+        `SELECT b.hero_id AS ally, count(*) AS games, sum(CASE WHEN m.radiant_win = (a.player_slot < 128) THEN 1 ELSE 0 END) AS wins ` +
+        `${base} GROUP BY 1 HAVING count(*) >= ${minGames} ORDER BY 2 DESC LIMIT 300`;
+      const res = await apiGet<{ rows?: { ally: number; games: number; wins: number }[] }>("/explorer", { query: { sql }, ttl: "listing", timeoutMs: 25_000 });
+      const rows = (res.rows ?? []).map((r) => ({ ally: Number(r.ally), games: Number(r.games), win_rate_pct: winRate(Number(r.wins), Number(r.games)) }));
+      const withNames = await Promise.all(rows.map(async (r) => ({ ...r, ally: (await heroRefLazy(r.ally, lang))?.name ?? r.ally })));
+      const ranked = withNames.sort((a, b) => b.win_rate_pct - a.win_rate_pct);
+      return {
+        hero_id: args.hero_id,
+        days,
+        min_games: minGames,
+        pairs_sampled: ranked.length,
+        best_allies: ranked.slice(0, 5),
+        worst_allies: ranked.slice(-5).reverse(),
+      };
+    },
+  },
+  {
+    name: "get_explorer_schema",
+    description:
+      "Table/column dictionary of the public dataset behind run_explorer_query (matches, " +
+      "player_matches, heroes, teams, picks_bans, public_matches, ...). Call this before writing " +
+      "custom SQL so column names are correct (e.g. start_time is on matches, hero_id on player_matches).",
+    schema: {
+      table: z.string().optional().describe("Restrict to one table (e.g. 'player_matches')."),
+    },
+    handler: async (args) => {
+      const schema = await apiGet<{ table_name: string; column_name: string }[]>("/schema", { ttl: "constants" });
+      const filtered = args.table ? schema.filter((s) => s.table_name === args.table) : schema;
+      const byTable: Record<string, string[]> = {};
+      for (const s of filtered) (byTable[s.table_name] ??= []).push(s.column_name);
+      return { tables: Object.fromEntries(Object.entries(byTable).map(([t, cols]) => [t, { columns: cols, column_count: cols.length }])) };
+    },
+  },
+  {
     name: "run_explorer_query",
     description:
       "Run a read-only SQL query against OpenDota's public matches dataset (POSTGRES syntax, tables " +
