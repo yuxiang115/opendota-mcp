@@ -63,68 +63,76 @@ const ctx: ToolContext = {
   defaultLanguage: normalizeLanguage(DEFAULT_LANGUAGE),
 };
 
-const server = new McpServer(
-  { name: "opendota-mcp", version: PACKAGE_VERSION },
-  {
-    instructions:
-      "Dota 2 data via the OpenDota API. HOW TO USE: " +
-      "(1) Resolve any player/hero/item name first — search_players for accounts, search_dota_entities for " +
-      "game entities (accepts any language, e.g. 敌法师, AND community nicknames like 火猫/大骨灰/BKB/PA; " +
-      "ambiguous nicknames like 猴子/ES return candidate heroes — ask the user which they mean, never guess). (2) Never guess account ids or describe " +
-      "abilities/items from memory — use get_hero_kit / get_item_details for authoritative current-patch data. " +
-      "(3) For match analysis prefer the registered prompts (match-analysis, player-review, hero-guide, " +
-      "meta-report) which encode the full playbook. (4) Unparsed matches return a note — call " +
-      "request_match_parse to unlock deep data. (5) Position fields carry position_basis; treat " +
-      "farm_order_only as a low-confidence guess. " +
-      "(6) DATA FRESHNESS: OpenDota's index lags — sometimes by hours, occasionally days for unranked " +
-      "modes like Turbo. If the user mentions games that are missing from their recent list, call " +
-      "refresh_player(account_id) once, wait a few seconds, then re-query. ALL timestamps in responses are " +
-      "UTC — ALWAYS convert to the user's local timezone (you usually know it from the user's profile) " +
-      "before quoting dates/times, and label the timezone. " +
-      "(7) ALWAYS use these tools for Dota data — never fetch api.opendota.com yourself (via exec/curl/" +
-      "web tools): raw responses contain untranslated numeric ids, no caching, and burn the user's rate " +
-      "limit. Everything the API offers is exposed here, already enriched and cached. " +
-      (STRATZ_ENABLED
-        ? "(8) Rank-bracket/position-split aggregates (get_matchups_by_rank, get_item_builds_by_rank, " +
-          "get_talent_stats, get_skill_builds_by_rank, get_lane_matchups, get_draft_advice, get_hero_trend) come " +
-          "from STRATZ with much larger samples than the OpenDota scenario tools — prefer them for " +
-          "counter/item/talent/lane/draft questions, and quote win rates with their ci95_pp. "
-        : "") +
-      `Names are localized (default ${ctx.defaultLanguage}; per-call language param or OPENDOTA_LANGUAGE env). ` +
-      "Free tier ~60 requests/min; set OPENDOTA_API_KEY for more.",
-  },
-);
+/**
+ * Fresh McpServer with every tool + prompt registered. stdio mode uses one
+ * instance for the process; HTTP mode creates one per session (SDK requirement
+ * for stateful streamable-HTTP sessions).
+ */
+function buildServer(): McpServer {
+  const server = new McpServer(
+    { name: "opendota-mcp", version: PACKAGE_VERSION },
+    {
+      instructions:
+        "Dota 2 data via the OpenDota API. HOW TO USE: " +
+        "(1) Resolve any player/hero/item name first — search_players for accounts, search_dota_entities for " +
+        "game entities (accepts any language, e.g. 敌法师, AND community nicknames like 火猫/大骨灰/BKB/PA; " +
+        "ambiguous nicknames like 猴子/ES return candidate heroes — ask the user which they mean, never guess). (2) Never guess account ids or describe " +
+        "abilities/items from memory — use get_hero_kit / get_item_details for authoritative current-patch data. " +
+        "(3) For match analysis prefer the registered prompts (match-analysis, player-review, hero-guide, " +
+        "meta-report) which encode the full playbook. (4) Unparsed matches return a note — call " +
+        "request_match_parse to unlock deep data. (5) Position fields carry position_basis; treat " +
+        "farm_order_only as a low-confidence guess. " +
+        "(6) DATA FRESHNESS: OpenDota's index lags — sometimes by hours, occasionally days for unranked " +
+        "modes like Turbo. If the user mentions games that are missing from their recent list, call " +
+        "refresh_player(account_id) once, wait a few seconds, then re-query. ALL timestamps in responses are " +
+        "UTC — ALWAYS convert to the user's local timezone (you usually know it from the user's profile) " +
+        "before quoting dates/times, and label the timezone. " +
+        "(7) ALWAYS use these tools for Dota data — never fetch api.opendota.com yourself (via exec/curl/" +
+        "web tools): raw responses contain untranslated numeric ids, no caching, and burn the user's rate " +
+        "limit. Everything the API offers is exposed here, already enriched and cached. " +
+        (STRATZ_ENABLED
+          ? "(8) Rank-bracket/position-split aggregates (get_matchups_by_rank, get_item_builds_by_rank, " +
+            "get_talent_stats, get_skill_builds_by_rank, get_lane_matchups, get_draft_advice, get_hero_trend) come " +
+            "from STRATZ with much larger samples than the OpenDota scenario tools — prefer them for " +
+            "counter/item/talent/lane/draft questions, and quote win rates with their ci95_pp. "
+          : "") +
+        `Names are localized (default ${ctx.defaultLanguage}; per-call language param or OPENDOTA_LANGUAGE env). ` +
+        "Free tier ~60 requests/min; set OPENDOTA_API_KEY for more.",
+    },
+  );
 
-registerPrompts(server);
+  registerPrompts(server);
 
-for (const tool of allTools) {
-  server.tool(tool.name, tool.description, tool.schema, async (args) => {
-    const traceId = newTraceId();
-    const startedAt = Date.now();
-    try {
-      const data = await traceStorage.run({ trace_id: traceId, tool: tool.name }, () =>
-        tool.handler(args as Record<string, unknown>, ctx),
-      );
-      logToolCall({
-        trace_id: traceId,
-        tool: tool.name,
-        duration_ms: Date.now() - startedAt,
-        ok: true,
-        result_bytes: JSON.stringify(data).length,
-      });
-      return { content: [{ type: "text" as const, text: JSON.stringify(data) }] };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      logToolCall({
-        trace_id: traceId,
-        tool: tool.name,
-        duration_ms: Date.now() - startedAt,
-        ok: false,
-        error: message.slice(0, 300),
-      });
-      return { content: [{ type: "text" as const, text: `Error: ${message}` }], isError: true };
-    }
-  });
+  for (const tool of allTools) {
+    server.tool(tool.name, tool.description, tool.schema, async (args) => {
+      const traceId = newTraceId();
+      const startedAt = Date.now();
+      try {
+        const data = await traceStorage.run({ trace_id: traceId, tool: tool.name }, () =>
+          tool.handler(args as Record<string, unknown>, ctx),
+        );
+        logToolCall({
+          trace_id: traceId,
+          tool: tool.name,
+          duration_ms: Date.now() - startedAt,
+          ok: true,
+          result_bytes: JSON.stringify(data).length,
+        });
+        return { content: [{ type: "text" as const, text: JSON.stringify(data) }] };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logToolCall({
+          trace_id: traceId,
+          tool: tool.name,
+          duration_ms: Date.now() - startedAt,
+          ok: false,
+          error: message.slice(0, 300),
+        });
+        return { content: [{ type: "text" as const, text: `Error: ${message}` }], isError: true };
+      }
+    });
+  }
+  return server;
 }
 
 async function main(): Promise<void> {
@@ -204,10 +212,128 @@ async function main(): Promise<void> {
   ]) {
     load().catch(() => {});
   }
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  // Log to stderr only; stdout is reserved for the MCP protocol.
-  console.error(`opendota-mcp v${PACKAGE_VERSION} ready: ${allTools.length} tools, language=${ctx.defaultLanguage}`);
+  const transportMode =
+    process.env.OPENDOTA_TRANSPORT?.toLowerCase() === "http" || process.env.PORT ? "http" : "stdio";
+  if (transportMode === "http") {
+    await startHttpServer();
+  } else {
+    const transport = new StdioServerTransport();
+    await buildServer().connect(transport);
+    // Log to stderr only; stdout is reserved for the MCP protocol.
+    console.error(`opendota-mcp v${PACKAGE_VERSION} ready: ${allTools.length} tools, language=${ctx.defaultLanguage}`);
+  }
+}
+
+/**
+ * Streamable HTTP transport (MCP spec 2025-03-26) for remote/docker deployments:
+ *   POST   /mcp   client→server messages (initialize, tool calls, ...)
+ *   GET    /mcp   server→client SSE stream (optional, per session)
+ *   DELETE /mcp   terminate a session
+ *   GET    /healthz  unauthenticated liveness probe
+ * Sessions are stateful: one McpServer instance per mcp-session-id. Set
+ * OPENDOTA_HTTP_TOKEN to require `Authorization: Bearer <token>` on /mcp.
+ */
+async function startHttpServer(): Promise<void> {
+  const { StreamableHTTPServerTransport } = await import(
+    "@modelcontextprotocol/sdk/server/streamableHttp.js"
+  );
+  const { createServer } = await import("node:http");
+  const { randomUUID } = await import("node:crypto");
+
+  const port = Number(process.env.PORT ?? 8787);
+  const authToken = process.env.OPENDOTA_HTTP_TOKEN?.trim();
+  const sessions = new Map<string, InstanceType<typeof StreamableHTTPServerTransport>>();
+
+  const readBody = (req: import("node:http").IncomingMessage): Promise<unknown> =>
+    new Promise((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (c: Buffer) => chunks.push(c));
+      req.on("end", () => {
+        const raw = Buffer.concat(chunks).toString("utf8");
+        if (!raw) return resolve(undefined);
+        try {
+          resolve(JSON.parse(raw));
+        } catch {
+          reject(new Error("invalid JSON body"));
+        }
+      });
+      req.on("error", reject);
+    });
+
+  const httpServer = createServer(async (req, res) => {
+    const pathname = new URL(req.url ?? "/", "http://localhost").pathname;
+    if (req.method === "GET" && pathname === "/healthz") {
+      res.writeHead(200, { "content-type": "text/plain" });
+      res.end("ok");
+      return;
+    }
+    if (pathname !== "/mcp") {
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found — the MCP endpoint is POST /mcp" }));
+      return;
+    }
+    if (authToken && req.headers.authorization !== `Bearer ${authToken}`) {
+      res.writeHead(401, { "content-type": "application/json", "www-authenticate": 'Bearer realm="opendota-mcp"' });
+      res.end(JSON.stringify({ error: "unauthorized — set Authorization: Bearer <OPENDOTA_HTTP_TOKEN>" }));
+      return;
+    }
+    try {
+      const sessionIdHeader = req.headers["mcp-session-id"];
+      const sessionId = typeof sessionIdHeader === "string" ? sessionIdHeader : undefined;
+      if (req.method === "POST") {
+        const body = await readBody(req);
+        let transport = sessionId ? sessions.get(sessionId) : undefined;
+        if (!transport) {
+          if (sessionId) {
+            res.writeHead(404, { "content-type": "application/json" });
+            res.end(JSON.stringify({ error: "session not found (expired or restarted)" }));
+            return;
+          }
+          transport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID(),
+          });
+          transport.onclose = () => {
+            if (transport!.sessionId) sessions.delete(transport!.sessionId);
+          };
+          await buildServer().connect(transport);
+          await transport.handleRequest(req, res, body);
+          // The session id is only generated while handling the initialize
+          // request, so the map entry has to be written afterwards.
+          if (transport.sessionId && !sessions.has(transport.sessionId)) {
+            sessions.set(transport.sessionId, transport);
+          }
+          return;
+        }
+        await transport.handleRequest(req, res, body);
+      } else if (req.method === "GET" || req.method === "DELETE") {
+        const transport = sessionId ? sessions.get(sessionId) : undefined;
+        if (!transport) {
+          res.writeHead(400, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: `${req.method} requires a valid mcp-session-id header` }));
+          return;
+        }
+        await transport.handleRequest(req, res);
+      } else {
+        res.writeHead(405, { allow: "GET, POST, DELETE" });
+        res.end();
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`http transport error (${req.method} ${pathname}):`, message);
+      if (!res.headersSent) {
+        res.writeHead(500, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: message }));
+      } else {
+        res.end();
+      }
+    }
+  });
+
+  await new Promise<void>((resolve) => httpServer.listen(port, "0.0.0.0", resolve));
+  console.error(
+    `opendota-mcp v${PACKAGE_VERSION} ready (http): ${allTools.length} tools, listening on :${port}/mcp` +
+      `${authToken ? " (bearer auth on)" : " (NO auth token set — anyone reachable can use it)"}, language=${ctx.defaultLanguage}`,
+  );
 }
 
 main().catch((err) => {

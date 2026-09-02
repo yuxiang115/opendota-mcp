@@ -1,0 +1,16 @@
+services:
+  opendota-mcp:
+    build: .
+    container_name: opendota-mcp
+    restart: unless-stopped
+    env_file: .env
+    # Loopback only: the reverse proxy (host-network nginx) reaches it,
+    # the outside world cannot.
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      # Persists the endpoint disk cache (parsed matches, constants) across
+      # container rebuilds.
+      - opendota-cache:/data
+volumes:
+  opendota-cache:
