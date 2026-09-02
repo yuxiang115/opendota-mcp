@@ -37,6 +37,31 @@ npx opendota-mcp
 npx .
 ```
 
+### Install the Agent Skill (recommended)
+
+The package ships an [Agent Skill](./skill/SKILL.md) (`skill/SKILL.md`) that teaches
+the host agent the full Dota analysis playbook (which tools to call, how to read
+enriched fields, rank-bracket data boundaries). Skills are loaded by the **host
+application**, not the MCP server, so after adding the server run:
+
+```bash
+npx opendota-mcp install-skill          # auto-detects installed hosts
+npx opendota-mcp install-skill all      # force every supported host
+npx opendota-mcp install-skill zcode    # or pick: claude-code | zcode | openclaw
+```
+
+Manual equivalent if you prefer:
+
+| Host | Where the skill goes |
+|---|---|
+| Claude Code | `~/.claude/skills/opendota/SKILL.md` |
+| ZCode | `~/.agents/skills/opendota/SKILL.md` |
+| openclaw | `openclaw skills install <repo>/skill` |
+| No install yet | `curl -fsSL https://raw.githubusercontent.com/yuxiang115/opendota-mcp/main/skill/SKILL.md -o SKILL.md` |
+
+Restart the host (or start a new session) afterwards. Everything works without
+the skill too — it just shortens the agent's path to the right tools.
+
 ### Environment variables
 
 | Variable | Default | Description |

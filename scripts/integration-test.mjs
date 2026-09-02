@@ -846,6 +846,27 @@ console.log("\n■ Regression R — STRATZ provider (bracket/position aggregates
 }
 
 // ─────────────────────────────────────────────────────────────
+console.log("\n■ Regression S — install-skill CLI copies the Agent Skill into host dirs");
+{
+  const { mkdtempSync, existsSync, readFileSync } = await import("node:fs");
+  const osMod = await import("node:os");
+  const pathMod = await import("node:path");
+  const { spawnSync } = await import("node:child_process");
+  const tmp = mkdtempSync(pathMod.join(osMod.tmpdir(), "skill-test-"));
+  const r = spawnSync(process.execPath, ["dist/index.js", "install-skill", "all"], {
+    env: { ...process.env, HOME: tmp, USERPROFILE: tmp },
+    encoding: "utf8",
+  });
+  ok("install-skill exits 0", r.status === 0, (r.stderr || "").slice(0, 120));
+  ok("claude-code dir populated", existsSync(pathMod.join(tmp, ".claude", "skills", "opendota", "SKILL.md")));
+  ok("zcode dir populated", existsSync(pathMod.join(tmp, ".agents", "skills", "opendota", "SKILL.md")));
+  ok(
+    "copied SKILL.md keeps its front-matter",
+    readFileSync(pathMod.join(tmp, ".agents", "skills", "opendota", "SKILL.md"), "utf8").includes("name: opendota"),
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 console.log(`\n═══ 结果: ${passed} passed, ${failed} failed ═══`);
 if (failures.length) {
   console.log("Failures:");

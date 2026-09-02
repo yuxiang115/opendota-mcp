@@ -1,4 +1,11 @@
 #!/usr/bin/env node
+// `opendota-mcp install-skill [claude-code|zcode|openclaw|all]` copies the shipped
+// Agent Skill into host skill directories, then exits. Everything else starts the MCP server.
+if (process.argv[2] === "install-skill") {
+  const { installSkill } = await import("./install-skill.js");
+  installSkill(process.argv.slice(3));
+  process.exit(0);
+}
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { DEFAULT_LANGUAGE, shouldSeedBundle } from "./config.js";
@@ -34,7 +41,7 @@ import { registerPrompts } from "./prompts.js";
 import { STRATZ_ENABLED } from "./stratz.js";
 import { stratzTools } from "./tools/stratz.js";
 
-const PACKAGE_VERSION = "0.10.1";
+const PACKAGE_VERSION = "0.10.2";
 
 const allTools: ToolDef[] = [
   ...systemTools,
