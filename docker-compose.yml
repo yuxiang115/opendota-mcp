@@ -3,7 +3,6 @@ services:
     build: .
     container_name: opendota-mcp
     restart: unless-stopped
-    env_file: .env
     # Loopback only: the reverse proxy (host-network nginx) reaches it,
     # the outside world cannot.
     ports:
@@ -12,5 +11,19 @@ services:
       # Persists the endpoint disk cache (parsed matches, constants) across
       # container rebuilds.
       - opendota-cache:/data
+    environment:
+      # ── Auth token: pick your own long random string and paste it here. ──
+      # MCP clients must send the same value as a header:
+      #   Authorization: Bearer <your token>
+      # See README "Connecting MCP clients" for copy-paste client configs.
+      - OPENDOTA_HTTP_TOKEN=CHANGE_ME_to_a_long_random_secret
+      # ── Optional: STRATZ bracket/position tools (free token from
+      #    https://stratz.com/api). Direct api.stratz.com access may be
+      #    blocked by Cloudflare in some networks — a curl-relay base URL
+      #    works too.
+      # - STRATZ_API_TOKEN=
+      # - STRATZ_BASE_URL=https://api.stratz.com/graphql
+      # ── Optional: default name language (schinese, tchinese, russian, ...)
+      # - OPENDOTA_LANGUAGE=schinese
 volumes:
   opendota-cache:

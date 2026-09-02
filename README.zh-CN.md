@@ -110,16 +110,53 @@ OpenDota 的公开场景端点已不支持按天梯分段过滤，英雄对英�
 
 需要常驻共享服务器（远程 MCP 客户端接入，替代每台机器本地 stdio）时：
 
+1. clone 后直接在 `docker-compose.yml` 里改 token（无需 env 文件）：
+
 ```bash
 git clone https://github.com/yuxiang115/opendota-mcp.git && cd opendota-mcp
-printf 'OPENDOTA_HTTP_TOKEN=%s\n' "$(openssl rand -hex 24)" > .env
-docker compose up -d --build   # 在 127.0.0.1:8787/mcp 提供 MCP Streamable HTTP
+vim docker-compose.yml        # 把 OPENDOTA_HTTP_TOKEN 改成你自己的密钥
+docker compose up -d --build  # 在 127.0.0.1:8787/mcp 提供 MCP Streamable HTTP
 ```
 
-客户端用 `Authorization: Bearer <OPENDOTA_HTTP_TOKEN>` 鉴权。前置 nginx（或任意
-TLS 代理）做 HTTPS —— 对 SSE 流关闭缓冲、调大读超时。`/healthz` 是无鉴权存活探
-针。不用 compose 直接跑镜像时设置 `OPENDOTA_TRANSPORT=http` 和 `PORT`。磁盘缓存
-持久化在 `opendota-cache` 卷里。
+2. 前置 nginx（或任意 TLS 代理）做 HTTPS —— 对 SSE 流关闭缓冲、调大读超时。
+   `/healthz` 是无鉴权存活探针。不用 compose 直接跑镜像时设置
+   `OPENDOTA_TRANSPORT=http` 和 `PORT`。磁盘缓存持久化在 `opendota-cache` 卷里。
+
+#### 对接 MCP 客户端
+
+每个客户端只需要两样东西：**URL**（`https://你的域名/mcp`）和你在 compose 里设
+的 **token**，以请求头发送：`Authorization: Bearer <你的 token>`。
+
+Claude Code：
+
+```bash
+claude mcp add --transport http opendota https://你的域名/mcp \
+  --header "Authorization: Bearer <你的 token>"
+```
+
+Cursor / Claude Desktop / 任何支持 JSON 配置的 MCP 客户端：
+
+```json
+{
+  "mcpServers": {
+    "opendota": {
+      "type": "http",
+      "url": "https://你的域名/mcp",
+      "headers": { "Authorization": "Bearer <你的 token>" }
+    }
+  }
+}
+```
+
+用 curl 冒烟测试（响应头里应出现 `mcp-session-id`；不带 token 会得到 401）：
+
+```bash
+curl -i https://你的域名/mcp \
+  -H "Authorization: Bearer <你的 token>" \
+  -H "content-type: application/json" \
+  -H "accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}'
+```
 
 ### Claude Code
 

@@ -129,17 +129,56 @@ numbers honestly. STRATZ requests are cached (30 min) and rate-throttled.
 
 For a shared always-on server (remote MCP clients instead of per-host stdio):
 
+1. Clone and edit the token directly in `docker-compose.yml` (no env files):
+
 ```bash
 git clone https://github.com/yuxiang115/opendota-mcp.git && cd opendota-mcp
-printf 'OPENDOTA_HTTP_TOKEN=%s\n' "$(openssl rand -hex 24)" > .env
-docker compose up -d --build   # MCP Streamable HTTP on 127.0.0.1:8787/mcp
+$EDITOR docker-compose.yml   # set OPENDOTA_HTTP_TOKEN to your own secret
+docker compose up -d --build # MCP Streamable HTTP on 127.0.0.1:8787/mcp
 ```
 
-Clients authenticate with `Authorization: Bearer <OPENDOTA_HTTP_TOKEN>`.
-Put nginx (or any TLS proxy) in front for HTTPS — disable buffering and raise
-read timeouts for the SSE stream. `/healthz` is an unauthenticated liveness
-probe. Running the image without compose: set `OPENDOTA_TRANSPORT=http` and
-`PORT`. The disk cache persists in the `opendota-cache` volume.
+2. Put nginx (or any TLS proxy) in front for HTTPS — disable buffering and
+   raise read timeouts for the SSE stream. `/healthz` is an unauthenticated
+   liveness probe. Running the image without compose: set
+   `OPENDOTA_TRANSPORT=http` and `PORT`. The disk cache persists in the
+   `opendota-cache` volume.
+
+#### Connecting MCP clients
+
+Every client needs exactly two things: the **URL** (`https://your-host/mcp`)
+and the **token** you set in compose, sent as a header:
+`Authorization: Bearer <your token>`.
+
+Claude Code:
+
+```bash
+claude mcp add --transport http opendota https://your-host/mcp   --header "Authorization: Bearer <your token>"
+```
+
+Cursor / Claude Desktop / any MCP client with JSON config:
+
+```json
+{
+  "mcpServers": {
+    "opendota": {
+      "type": "http",
+      "url": "https://your-host/mcp",
+      "headers": { "Authorization": "Bearer <your token>" }
+    }
+  }
+}
+```
+
+Smoke-test the endpoint with curl (expect `mcp-session-id` in the response
+headers; without the header you get 401):
+
+```bash
+curl -i https://your-host/mcp \
+  -H "Authorization: Bearer <your token>" \
+  -H "content-type: application/json" \
+  -H "accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}'
+```
 
 ### Claude Code
 
