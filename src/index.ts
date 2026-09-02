@@ -9,6 +9,7 @@ import { heroTools } from "./tools/heroes.js";
 import { proTools } from "./tools/pro.js";
 import type { ToolContext, ToolDef } from "./tools/registry.js";
 import { referenceTools } from "./tools/reference.js";
+import { scenarioTools } from "./tools/scenarios.js";
 import { systemTools } from "./tools/system.js";
 import { teamTools } from "./tools/teams.js";
 import {
@@ -31,7 +32,7 @@ import { apiGet, readBundleManifest, seedConstantsFromBundle, updateBundleManife
 import { LOG_TARGET, logBoot, logToolCall, newTraceId, traceStorage } from "./telemetry.js";
 import { registerPrompts } from "./prompts.js";
 
-const PACKAGE_VERSION = "0.8.1";
+const PACKAGE_VERSION = "0.9.0";
 
 const allTools: ToolDef[] = [
   ...systemTools,
@@ -41,6 +42,7 @@ const allTools: ToolDef[] = [
   ...teamTools,
   ...proTools,
   ...referenceTools,
+  ...scenarioTools,
 ];
 
 const ctx: ToolContext = {
