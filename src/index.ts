@@ -31,8 +31,10 @@ import {
 import { apiGet, readBundleManifest, seedConstantsFromBundle, updateBundleManifest } from "./client.js";
 import { LOG_TARGET, logBoot, logToolCall, newTraceId, traceStorage } from "./telemetry.js";
 import { registerPrompts } from "./prompts.js";
+import { STRATZ_ENABLED } from "./stratz.js";
+import { stratzTools } from "./tools/stratz.js";
 
-const PACKAGE_VERSION = "0.9.3";
+const PACKAGE_VERSION = "0.10.0";
 
 const allTools: ToolDef[] = [
   ...systemTools,
@@ -43,6 +45,7 @@ const allTools: ToolDef[] = [
   ...proTools,
   ...referenceTools,
   ...scenarioTools,
+  ...(STRATZ_ENABLED ? stratzTools : []),
 ];
 
 const ctx: ToolContext = {
@@ -61,6 +64,12 @@ const server = new McpServer(
       "meta-report) which encode the full playbook. (4) Unparsed matches return a note — call " +
       "request_match_parse to unlock deep data. (5) Position fields carry position_basis; treat " +
       "farm_order_only as a low-confidence guess. " +
+      (STRATZ_ENABLED
+        ? "(6) Rank-bracket/position-split aggregates (get_matchups_by_rank, get_item_builds_by_rank, " +
+          "get_talent_stats, get_lane_matchups, get_draft_advice, get_hero_trend) come from STRATZ with much " +
+          "larger samples than the OpenDota scenario tools — prefer them for counter/item/talent/lane/draft " +
+          "questions, and quote win rates with their ci95_pp. "
+        : "") +
       `Names are localized (default ${ctx.defaultLanguage}; per-call language param or OPENDOTA_LANGUAGE env). ` +
       "Free tier ~60 requests/min; set OPENDOTA_API_KEY for more.",
   },

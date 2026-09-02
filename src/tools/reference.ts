@@ -32,7 +32,7 @@ interface ItemAbilityEffect {
 }
 
 /** Valve loc strings carry unfilled placeholders like "+{s:bonus}% Damage"; strip the whole chunk. */
-function stripPlaceholders(s: string): string {
+export function stripPlaceholders(s: string): string {
   return s
     .replace(/\s*[/+-]?\s*\{[sd]:[^}]*\}\s*[sd%]?/g, " ")
     .replace(/\{value\}/g, "")
@@ -71,7 +71,7 @@ function toAbilityDetail(internal: string, raw: Record<string, any>, lang: strin
 }
 
 /** Resolve a hero by numeric id OR by exact/unique name (English or localized). */
-async function resolveHero(input: number | string, lang: string): Promise<number | undefined> {
+export async function resolveHero(input: number | string, lang: string): Promise<number | undefined> {
   if (typeof input === "number") return input;
   const q = input.trim().toLowerCase();
   const english = getLocaleBundle("english").heroes;

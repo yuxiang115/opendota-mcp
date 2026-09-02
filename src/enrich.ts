@@ -1,5 +1,6 @@
 import type { SupportedLanguage } from "./locales.js";
 import { getLocaleBundle } from "./locales.js";
+import { sampleFields } from "./stats.js";
 import {
   decodeBarracksStatus,
   decodeTowerStatus,
@@ -876,6 +877,7 @@ export async function enrichHeroMatchupRow(row: Record<string, any>, lang: Suppo
   delete out.hero_id;
   if (games > 0) {
     out.win_rate_pct = Math.round((wins / games) * 1000) / 10;
+    Object.assign(out, sampleFields(games, wins));
   }
   return out;
 }

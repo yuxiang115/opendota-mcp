@@ -10,6 +10,16 @@ export const DEFAULT_LANGUAGE = process.env.OPENDOTA_LANGUAGE ?? "english";
 
 export const OPENDEOTA_API_KEY = process.env.OPENDOTA_API_KEY ?? "";
 
+/**
+ * STRATZ GraphQL provider (bracket/position-split hero aggregates).
+ * Free API, token required — get one at https://stratz.com/api (Steam login).
+ * Empty by default: STRATZ tools only register when a token is configured.
+ */
+export const STRATZ_API_TOKEN = process.env.STRATZ_API_TOKEN?.trim() ?? "";
+
+export const STRATZ_BASE_URL =
+  process.env.STRATZ_BASE_URL ?? "https://api.stratz.com/graphql";
+
 export const OPENDOTA_BASE_URL =
   process.env.OPENDOTA_BASE_URL ?? "https://api.opendota.com/api";
 

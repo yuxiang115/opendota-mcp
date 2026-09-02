@@ -2,6 +2,7 @@ import { z } from "zod";
 import { apiGet } from "../client.js";
 import { abilityRef, laneRoleLabel, rankTierToLabel } from "../mapping.js";
 import { itemInternalRef } from "../enrich.js";
+import { sampleFields } from "../stats.js";
 import { effectiveLanguage, languageParam, type ToolDef } from "./registry.js";
 
 const heroIdParam = z
@@ -51,7 +52,12 @@ export const scenarioTools: ToolDef[] = [
             .map(async (e) => {
               totalGames += e.games;
               const ref = await itemInternalRef(e.item, lang);
-              return { item: ref?.name ?? e.item, games: e.games, win_rate_pct: winRate(e.wins, e.games) };
+              return {
+                item: ref?.name ?? e.item,
+                games: e.games,
+                win_rate_pct: winRate(e.wins, e.games),
+                ...sampleFields(e.games, e.wins),
+              };
             }),
         );
       }
@@ -85,6 +91,7 @@ export const scenarioTools: ToolDef[] = [
             game_length: `under ${Math.round(r.time / 60)} min`,
             games: r.games,
             win_rate_pct: winRate(r.wins, r.games),
+            ...sampleFields(r.games, r.wins),
           })),
       };
     },
@@ -228,7 +235,12 @@ export const scenarioTools: ToolDef[] = [
         `SELECT b.hero_id AS ally, count(*) AS games, sum(CASE WHEN m.radiant_win = (a.player_slot < 128) THEN 1 ELSE 0 END) AS wins ` +
         `${base} GROUP BY 1 HAVING count(*) >= ${minGames} ORDER BY 2 DESC LIMIT 300`;
       const res = await apiGet<{ rows?: { ally: number; games: number; wins: number }[] }>("/explorer", { query: { sql }, ttl: "listing", timeoutMs: 25_000 });
-      const rows = (res.rows ?? []).map((r) => ({ ally: Number(r.ally), games: Number(r.games), win_rate_pct: winRate(Number(r.wins), Number(r.games)) }));
+      const rows = (res.rows ?? []).map((r) => ({
+        ally: Number(r.ally),
+        games: Number(r.games),
+        win_rate_pct: winRate(Number(r.wins), Number(r.games)),
+        ...sampleFields(Number(r.games), Number(r.wins)),
+      }));
       const withNames = await Promise.all(rows.map(async (r) => ({ ...r, ally: (await heroRefLazy(r.ally, lang))?.name ?? r.ally })));
       const ranked = withNames.sort((a, b) => b.win_rate_pct - a.win_rate_pct);
       return {

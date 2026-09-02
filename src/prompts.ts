@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { STRATZ_ENABLED } from "./stratz.js";
 
 /**
  * MCP prompts: ready-made workflow instructions the client can trigger
@@ -75,9 +76,9 @@ ${langLine(language ?? "schinese")}`),
       userPrompt(`请为英雄 ${hero} 制作当前版本的完全攻略（数据全部来自 opendota MCP，禁止凭记忆描述技能）：
 
 1. get_hero_kit(hero="${hero}") → 技能说明/魔耗/冷却/数值、天赋树、facets（向用户解释每个技能机制）
-2. get_hero_stats → 该英雄各分段胜率 + 选取率（判断当前版本强度）
-3. get_hero_matchups → 最克制谁（胜率最高的对位）和被谁克（胜率最低的）
-4. get_hero_item_popularity + get_item_details → 分阶段出装（开始/前期/中期/后期），解释核心装备作用
+2. get_hero_stats → 该英雄各分段胜率 + 选取率（判断当前版本强度）${STRATZ_ENABLED ? "；get_hero_trend → 版本走势（是否被削）" : ""}
+3. ${STRATZ_ENABLED ? "get_matchups_by_rank + get_lane_matchups（按用户分段过滤；引用胜率必须带 win_rate_ci95_pp）→ 克制/被克与对线难易" : "get_hero_matchups → 最克制谁（胜率最高的对位）和被谁克（胜率最低的）"}
+4. ${STRATZ_ENABLED ? "get_item_builds_by_rank + get_talent_stats（分段+位置过滤）→ 核心出装时间线与天赋选择胜率" : "get_hero_item_popularity + get_item_details → 分阶段出装（开始/前期/中期/后期），解释核心装备作用"}
 5. get_hero_duration_performance → 时长胜率曲线（前期核还是后期核）
 6. 综合：适合什么局面选、什么局面对线难受、连招/加点顺序建议（基于技能数值，不要编造）
 

@@ -696,6 +696,156 @@ console.log("\n■ Regression Q — rank tiers always labeled (publicMatches avg
 }
 
 // ─────────────────────────────────────────────────────────────
+console.log("\n■ Regression R — STRATZ provider (bracket/position aggregates; mock GraphQL upstream)");
+{
+  // Fresh temp dir so leftover STRATZ/OpenDota disk caches from other runs can't serve this section.
+  const { mkdtempSync } = await import("node:fs");
+  const osMod = await import("node:os");
+  const pathMod = await import("node:path");
+  const freshTmp = mkdtempSync(pathMod.join(osMod.tmpdir(), "opendota-mcp-test-"));
+  const isolatedEnv = { TMP: freshTmp, TEMP: freshTmp, TMPDIR: freshTmp };
+
+  // Without a token none of the STRATZ tools register.
+  const plain = await boot();
+  const plainTools = (await plain.listTools()).tools;
+  ok("no STRATZ token → STRATZ tools absent", !plainTools.some((t) => t.name === "get_matchups_by_rank"), `tools=${plainTools.length}`);
+  await plain.close();
+
+  let gqlHits = 0;
+  const mock = (await import("node:http")).createServer((req, res) => {
+    const p = req.url.split("?")[0];
+    res.setHeader("content-type", "application/json");
+    if (p === "/constants/patch") {
+      res.end(JSON.stringify([{ id: 60, name: "7.41" }]));
+      return;
+    }
+    if (p === "/graphql") {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        gqlHits++;
+        const q = String(JSON.parse(body).query ?? "");
+        const send = (heroStats) => res.end(JSON.stringify({ data: { heroStats } }));
+        if (q.includes("e0:")) {
+          // get_draft_advice: enemy 44 and 2 both lose to candidate 80; picked heroes excluded.
+          send({
+            e0: { disadvantage: [{ vs: [{ heroId2: 80, matchCount: 250, winCount: 75 }, { heroId2: 2, matchCount: 900, winCount: 100 }] }] },
+            e1: { disadvantage: [{ vs: [{ heroId2: 80, matchCount: 400, winCount: 160 }] }] },
+            // matchUp returns one dryad per queried ally — keep the real array shape.
+            synergy: [{ with: [{ heroId2: 80, matchCount: 500, winCount: 300, synergy: 5 }] }],
+          });
+        } else if (q.includes("heroVsHeroMatchup")) {
+          send({
+            heroVsHeroMatchup: {
+              advantage: [{ heroId: 44, vs: [{ heroId2: 66, matchCount: 250, winCount: 163 }] }],
+              disadvantage: [{ heroId: 44, vs: [{ heroId2: 78, matchCount: 300, winCount: 105 }] }],
+            },
+          });
+        } else if (q.includes("itemFullPurchase")) {
+          // `time` is minutes in the STRATZ API.
+          send({ itemFullPurchase: [{ itemId: 1, time: 10, matchCount: 100, winCount: 60 }, { itemId: 1, time: 13, matchCount: 50, winCount: 25 }] });
+        } else if (q.includes("winGameVersion")) {
+          send({ winGameVersion: [{ gameVersionId: 200, winCount: 55, matchCount: 100 }, { gameVersionId: 199, winCount: 40, matchCount: 100 }] });
+        } else if (q.includes("gameVersions")) {
+          res.end(JSON.stringify({ data: { constants: { gameVersions: [{ id: 200, name: "7.99" }, { id: 199, name: "7.98" }] } } }));
+          return;
+        } else if (q.includes("talent")) {
+          send({ talent: [{ abilityId: 483, matchCount: 1000, winCount: 600 }] });
+        } else {
+          res.end(JSON.stringify({ data: {}, errors: [{ message: "unknown mock query" }] }));
+        }
+      });
+      return;
+    }
+    res.end("{}");
+  });
+  await new Promise((r) => mock.listen(0, "127.0.0.1", r));
+  const port = mock.address().port;
+
+  const sc = await boot({
+    ...isolatedEnv,
+    STRATZ_API_TOKEN: "dummy-token",
+    STRATZ_BASE_URL: `http://127.0.0.1:${port}/graphql`,
+    OPENDOTA_BASE_URL: `http://127.0.0.1:${port}/api`,
+    OPENDOTA_BUNDLE_SEED: "1",
+    OPENDOTA_BUNDLE_PERSIST: "0",
+  });
+  const scTools = (await sc.listTools()).tools;
+  ok("STRATZ token → 57 tools incl. the 6 STRATZ tools", scTools.length === 57, `got ${scTools.length}`);
+  for (const n of ["get_matchups_by_rank", "get_item_builds_by_rank", "get_talent_stats", "get_lane_matchups", "get_draft_advice", "get_hero_trend"]) {
+    ok(`registers ${n}`, scTools.some((t) => t.name === n));
+  }
+
+  const hitsBefore = gqlHits;
+  const mu = await call(sc, "get_matchups_by_rank", { hero: "幻影刺客", bracket: "divine_immortal", take: 3, language: "schinese" });
+  ok(
+    "matchups by rank: recomputed WR + ci95 + bracket label",
+    mu.strong_against?.[0]?.win_rate_pct === 65.2 && mu.strong_against?.[0]?.games === 250 && typeof mu.strong_against?.[0]?.win_rate_ci95_pp === "number",
+    head(mu.strong_against?.[0]),
+  );
+  ok("struggles list computed from losses", mu.struggles_against?.[0]?.win_rate_pct === 35, head(mu.struggles_against?.[0]));
+  ok("bracket label present", mu.bracket === "Divine–Immortal (high)", mu.bracket);
+  ok("source attribution", mu.source === "stratz.com");
+
+  const items = await call(sc, "get_item_builds_by_rank", { hero: 44, limit: 5 });
+  const bf = items.items?.[0];
+  ok(
+    "item builds: aggregated games/avg minute/WR across timing buckets",
+    bf?.games === 150 && bf?.avg_purchase_min === 11 && bf?.win_rate_pct === 56.7 && typeof bf?.item === "string",
+    head(bf),
+  );
+
+  const tal = await call(sc, "get_talent_stats", { hero: 44 });
+  ok(
+    "talent stats resolve real talent names with counts",
+    tal.talents?.[0]?.games === 1000 && tal.talents?.[0]?.win_rate_pct === 60 && typeof tal.talents?.[0]?.talent === "string" && !tal.talents[0].talent.includes("{"),
+    head(tal.talents?.[0]),
+  );
+
+  const draft = await call(sc, "get_draft_advice", { enemy_heroes: [44, 2], ally_heroes: [11], bracket: "divine_immortal", take: 3 });
+  const rec = draft.recommendations?.[0];
+  ok(
+    "draft advice: candidate countering both enemies with per-enemy WR",
+    rec?.enemies_countered === 2 && rec?.counters?.length === 2 && rec?.counters?.[0]?.win_rate_pct === 70,
+    head(rec),
+  );
+  ok("draft advice: picked heroes never recommended", draft.recommendations?.length === 1, head(draft.recommendations?.map((r) => r.hero)));
+  ok("draft advice: ally synergy attached", rec?.ally_synergy?.[0]?.games === 500 && rec?.ally_synergy?.[0]?.win_rate_pct === 60, head(rec?.ally_synergy));
+
+  const trend = await call(sc, "get_hero_trend", { hero: 44, patches: 2 });
+  ok(
+    "hero trend: patch names mapped + delta vs previous patch",
+    trend.by_patch?.[0]?.patch === "7.99" && trend.by_patch?.[0]?.win_rate_pct === 55 && trend.by_patch?.[0]?.delta_vs_prev_patch_pp === 15,
+    head(trend.by_patch),
+  );
+
+  // Identical aggregates are served from cache — one upstream GraphQL call per unique query.
+  await call(sc, "get_matchups_by_rank", { hero: "幻影刺客", bracket: "divine_immortal", take: 3, language: "schinese" });
+  ok("stratz responses cached (no duplicate upstream query)", gqlHits - hitsBefore === 6, `gql calls since boot section: ${gqlHits - hitsBefore}`);
+
+  await sc.close();
+
+  // Token failures become {error, hint} results, not protocol errors.
+  const deny = (await import("node:http")).createServer((req, res) => {
+    res.statusCode = 401;
+    res.end(JSON.stringify({ message: "A bearer token is required for a request." }));
+  });
+  await new Promise((r) => deny.listen(0, "127.0.0.1", r));
+  const sc2 = await boot({
+    ...isolatedEnv,
+    STRATZ_API_TOKEN: "expired",
+    STRATZ_BASE_URL: `http://127.0.0.1:${deny.address().port}/graphql`,
+    OPENDOTA_BASE_URL: `http://127.0.0.1:${port}/api`,
+    OPENDOTA_BUNDLE_SEED: "1",
+  });
+  const err = await call(sc2, "get_hero_trend", { hero: 44 });
+  ok("401 → friendly error + renewal hint", /token/i.test(err.error ?? "") && /stratz.com\/api/.test(err.hint ?? ""), head(err));
+  await sc2.close();
+  deny.close();
+  mock.close();
+}
+
+// ─────────────────────────────────────────────────────────────
 console.log(`\n═══ 结果: ${passed} passed, ${failed} failed ═══`);
 if (failures.length) {
   console.log("Failures:");

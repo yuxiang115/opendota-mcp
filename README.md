@@ -45,6 +45,30 @@ npx .
 | `OPENDOTA_LANGUAGE` | `english` | Default language for hero/item/ability names. Accepts Steam codes (`schinese`) or tags (`zh-CN`). |
 | `OPENDOTA_BASE_URL` | `https://api.opendota.com/api` | Point at a self-hosted OpenDota instance if you run one. |
 | `OPENDOTA_RATE_LIMIT` | `55` (or `1200` with a key) | Max requests/minute the client will send. |
+| `STRATZ_API_TOKEN` | *(none)* | **Enables the STRATZ tools.** Free token from [stratz.com/api](https://stratz.com/api) (Steam login). Adds 6 rank-bracket/position-split aggregate tools (see below). |
+| `STRATZ_BASE_URL` | `https://api.stratz.com/graphql` | Override for testing. |
+
+### STRATZ-powered bracket stats (optional)
+
+OpenDota's public scenario endpoints no longer filter by rank bracket and its
+hero-vs-hero aggregates draw from a small parsed-match sample (~100 games per
+pairing). When `STRATZ_API_TOKEN` is set, six additional tools register,
+backed by [STRATZ](https://stratz.com)'s GraphQL API with full-pool samples
+(tens of thousands of games) and bracket/position filters:
+
+| Tool | Answers |
+|---|---|
+| `get_matchups_by_rank` | Who does a hero beat / lose to **at a given bracket** (with 95% CIs). |
+| `get_item_builds_by_rank` | Which items a hero buys at a bracket/position, average purchase minute, and win rate. |
+| `get_talent_stats` | Which talent choice actually wins, per bracket/position. |
+| `get_lane_matchups` | Lane-phase outcomes (win/loss/draw) vs each opponent hero. |
+| `get_draft_advice` | Given the enemy lineup (+ your allies), ranks counter picks with per-enemy win rates and ally synergy. |
+| `get_hero_trend` | Win rate per patch (all 8 brackets supported) — is the hero still good after the nerf? |
+
+Brackets map to STRATZ's tiers (`herald_guardian` … `divine_immortal`); the
+trend tool supports all 8 fine brackets. All win rates are recomputed from raw
+counts and every row carries `win_rate_ci95_pp` / `low_sample` so agents quote
+numbers honestly. STRATZ requests are cached (30 min) and rate-throttled.
 
 ### Claude Code
 
@@ -225,8 +249,9 @@ scripts/            # build-locales, smoke test
 ## Attribution
 
 - Data: [OpenDota API](https://www.opendota.com) — an open Dota 2 data platform.
+- Bracket-split aggregates (optional): [STRATZ API](https://stratz.com/api) — free GraphQL Dota 2 statistics.
 - Localized names: Valve's official Dota 2 data feeds.
-- Dota 2 is a trademark of Valve Corporation. This project is not affiliated with Valve or OpenDota.
+- Dota 2 is a trademark of Valve Corporation. This project is not affiliated with Valve, OpenDota or STRATZ.
 
 ## License
 
