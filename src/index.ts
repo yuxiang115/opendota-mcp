@@ -29,8 +29,9 @@ import {
 } from "./constants.js";
 import { apiGet, readBundleManifest, seedConstantsFromBundle, updateBundleManifest } from "./client.js";
 import { LOG_TARGET, logBoot, logToolCall, newTraceId, traceStorage } from "./telemetry.js";
+import { registerPrompts } from "./prompts.js";
 
-const PACKAGE_VERSION = "0.8.0";
+const PACKAGE_VERSION = "0.8.1";
 
 const allTools: ToolDef[] = [
   ...systemTools,
@@ -50,13 +51,20 @@ const server = new McpServer(
   { name: "opendota-mcp", version: PACKAGE_VERSION },
   {
     instructions:
-      "Dota 2 data via the OpenDota API. All hero/item/ability ids are resolved to names, and " +
-      `names are localized (default language: ${ctx.defaultLanguage}; change per-call with the language ` +
-      "parameter, or globally with the OPENDOTA_LANGUAGE env var). Resolve player/hero names first with " +
-      "search_players / search_dota_entities. Free tier allows ~60 requests/minute; set OPENDOTA_API_KEY " +
-      "for higher limits.",
+      "Dota 2 data via the OpenDota API. HOW TO USE: " +
+      "(1) Resolve any player/hero/item name first — search_players for accounts, search_dota_entities for " +
+      "game entities (accepts any language, e.g. 敌法师). (2) Never guess account ids or describe " +
+      "abilities/items from memory — use get_hero_kit / get_item_details for authoritative current-patch data. " +
+      "(3) For match analysis prefer the registered prompts (match-analysis, player-review, hero-guide, " +
+      "meta-report) which encode the full playbook. (4) Unparsed matches return a note — call " +
+      "request_match_parse to unlock deep data. (5) Position fields carry position_basis; treat " +
+      "farm_order_only as a low-confidence guess. " +
+      `Names are localized (default ${ctx.defaultLanguage}; per-call language param or OPENDOTA_LANGUAGE env). ` +
+      "Free tier ~60 requests/min; set OPENDOTA_API_KEY for more.",
   },
 );
+
+registerPrompts(server);
 
 for (const tool of allTools) {
   server.tool(tool.name, tool.description, tool.schema, async (args) => {
