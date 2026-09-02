@@ -178,7 +178,8 @@ All player-match tools accept the standard OpenDota filters (`hero_id`, `game_mo
 | `get_player_matches` | Filtered match history. |
 | `get_player_win_loss` | Win/loss counts + win rate. |
 | `get_player_heroes` | Most-played heroes with win rates. |
-| `get_player_peers` | Most-played-with players. |
+| `get_player_peers` | Duo/party partners: games, win rate together, avg GPM/XPM while partied — the "how do we perform as a stack" view. |
+| `get_player_opponents` | **People you keep getting matched against**: scans recent matches (incl. Turbo) → repeat enemies, their rank, favorite heroes vs you, your win rate against them. |
 | `get_player_pros` | Pro players encountered. |
 | `get_player_totals` | Lifetime aggregates (kills, gold, damage...). |
 | `get_player_counts` | Matches by mode/lobby/lane/region/patch (ids resolved). |

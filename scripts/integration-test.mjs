@@ -172,7 +172,7 @@ try {
   const client3 = new Client({ name: "integration-test", version: "0.0.0" });
   await client3.connect(transport3);
   const t3 = await client3.listTools();
-  ok("npx-launched server lists tools", t3.tools.length === 52, `got ${t3.tools.length}`);
+  ok("npx-launched server lists tools", t3.tools.length === 53, `got ${t3.tools.length}`);
   const r3 = await call(client3, "search_dota_entities", { query: "斧王", language: "schinese" });
   ok("npx-launched server serves localized queries", r3.matches?.some((m) => m.name === "斧王"), head(r3.matches?.[0]));
   await client3.close();
@@ -835,7 +835,7 @@ console.log("\n■ Regression R — STRATZ provider (bracket/position aggregates
     OPENDOTA_BUNDLE_PERSIST: "0",
   });
   const scTools = (await sc.listTools()).tools;
-  ok("STRATZ token → 62 tools incl. the 10 STRATZ tools", scTools.length === 62, `got ${scTools.length}`);
+  ok("STRATZ token → 63 tools incl. the 10 STRATZ tools + get_player_opponents", scTools.length === 63, `got ${scTools.length}`);
   for (const n of ["get_matchups_by_rank", "get_item_builds_by_rank", "get_talent_stats", "get_lane_matchups", "get_draft_advice", "get_skill_builds_by_rank", "get_hero_position_stats", "get_draft_composition", "get_match_coaching", "get_hero_trend"]) {
     ok(`registers ${n}`, scTools.some((t) => t.name === n));
   }
@@ -1020,6 +1020,62 @@ console.log("\n■ Regression T — item win rate vs a specific enemy (explorer 
   ok("list mode returns ranked items + baseline", lst.items?.[0]?.games === 100 && lst.baseline?.win_rate_pct === 50, head(lst.items?.[0]));
   const miss = await call(mc, "get_item_winrate_vs_hero", { hero_id: 106, enemy_hero_id: 36, item: "zzz_no_such_item" });
   ok("unknown item → error + hint", miss?.error != null && typeof miss.hint === "string", head(miss));
+  await mc.close();
+  mock.close();
+}
+
+// ─────────────────────────────────────────────────────────────
+console.log("\n■ Regression U — social tools: duo peers + repeat opponents");
+{
+  const mkMatch = (id, radiantWin, foeHero) => ({
+    match_id: id,
+    radiant_win: radiantWin,
+    start_time: 1700000000 + id,
+    players: [
+      { account_id: 1, player_slot: 0, hero_id: 44 },
+      { account_id: 2, player_slot: 128, hero_id: foeHero, personaname: "Foe", rank_tier: 80 },
+    ],
+  });
+  const mock = (await import("node:http")).createServer((req, res) => {
+    const p = req.url.replace(/^\/api/, "").split("?")[0];
+    res.setHeader("content-type", "application/json");
+    if (p === "/constants/patch") res.end(JSON.stringify([{ id: 60, name: "7.41" }]));
+    else if (p === "/players/1/peers")
+      res.end(JSON.stringify([{ account_id: 9, personaname: "Pal", games: 10, win: 6, with_games: 10, with_win: 6, with_gpm_sum: 5000, with_xpm_sum: 6000, last_played: 1700000000 }]));
+    else if (p === "/players/1/matches") res.end(JSON.stringify([{ match_id: 101 }, { match_id: 102 }]));
+    else if (p === "/matches/101") res.end(JSON.stringify(mkMatch(101, true, 2)));
+    else if (p === "/matches/102") res.end(JSON.stringify(mkMatch(102, false, 3)));
+    else res.end("{}");
+  });
+  await new Promise((r) => mock.listen(0, "127.0.0.1", r));
+  const { mkdtempSync } = await import("node:fs");
+  const osMod = await import("node:os");
+  const pathMod = await import("node:path");
+  const freshTmp = mkdtempSync(pathMod.join(osMod.tmpdir(), "opendota-mcp-test-"));
+  const mc = await boot({
+    TMP: freshTmp, TEMP: freshTmp, TMPDIR: freshTmp,
+    OPENDOTA_BASE_URL: `http://127.0.0.1:${mock.address().port}/api`,
+    OPENDOTA_BUNDLE_SEED: "1",
+    OPENDOTA_BUNDLE_PERSIST: "0",
+  });
+  const peers = await call(mc, "get_player_peers", { account_id: 1 });
+  ok(
+    "peers: duo win rate + together averages computed",
+    peers[0]?.as_duo?.win_rate_pct === 60 && peers[0]?.as_duo?.avg_gpm_while_together === 500,
+    JSON.stringify(peers[0]?.as_duo),
+  );
+  const opp = await call(mc, "get_player_opponents", { account_id: 1, limit_matches: 10 });
+  const foe = opp.repeat_opponents?.[0];
+  ok(
+    "opponents: repeat enemy aggregated across scanned matches",
+    foe?.player === "Foe" && foe?.encounters === 2 && foe?.my_win_rate_pct === 50 && foe?.rank_tier === "Immortal",
+    JSON.stringify(foe).slice(0, 200),
+  );
+  ok(
+    "opponents: their hero list vs me resolved",
+    foe?.their_heroes_vs_me?.length === 2 && typeof foe?.their_heroes_vs_me?.[0]?.hero === "string",
+    JSON.stringify(foe?.their_heroes_vs_me),
+  );
   await mc.close();
   mock.close();
 }

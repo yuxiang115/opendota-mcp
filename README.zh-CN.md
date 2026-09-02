@@ -117,7 +117,7 @@ npx opendota-mcp install-skill zcode    # 指定: claude-code | zcode | openclaw
 
 - **查询入口**：`search_dota_entities`（名称→ID，先调这个）、`search_players`（玩家名→account id）、`list_supported_languages`、`get_api_health`、`get_constants`
 - **比赛**：`get_match`（紧凑增强视图，英雄/物品/技能全部带名称，可选 picks_bans/teamfights/chat/经济曲线等）、`request_match_parse`、`get_parse_job_status`
-- **玩家**（15 个）：档案+段位、最近比赛、筛选战绩、胜率统计、英雄池、常一起玩的玩家、生涯总计、分布直方图、眼位图、词云、段位历史、英雄排名、刷新历史 等。**默认口径**：本服务端对筛选工具默认传 `significant=0`（包含 Turbo 等全部模式，OpenDota 官方默认会静默滤掉 Turbo）；只要标准模式请显式传 `significant=1`
+- **玩家**（17 个，含开黑队友战绩 `get_player_peers` 和"经常对上的人"`get_player_opponents`）：档案+段位、最近比赛、筛选战绩、胜率统计、英雄池、常一起玩的玩家、生涯总计、分布直方图、眼位图、词云、段位历史、英雄排名、刷新历史 等。**默认口径**：本服务端对筛选工具默认传 `significant=0`（包含 Turbo 等全部模式，OpenDota 官方默认会静默滤掉 Turbo）；只要标准模式请显式传 `significant=1`
 - **英雄**：英雄列表、技能/天赋/facets 权威参考（`get_hero_kit`，接受任意语言名）、物品参考（`get_item_details`）、全分段选取/胜率、克制关系（matchups）、基准分、物品热度、时长胜率曲线、英雄玩家榜 等
 - **场景统计与 SQL 浏览器**：出装时间线胜率、分路×时长胜率、公开比赛实时流、加点顺序胜率、队友协同胜率、**针对特定对面英雄的出装胜率交叉表**（`get_item_winrate_vs_hero`）、数据集表结构、自由 SQL 查询
 - **STRATZ 增强（需 token，9 个）**：分段克制 `get_matchups_by_rank`、分段出装+购买时间 `get_item_builds_by_rank`、天赋胜率 `get_talent_stats`、加点统计 `get_skill_builds_by_rank`、对线胜负 `get_lane_matchups`、位置表现 `get_hero_position_stats`、反制推荐 `get_draft_advice`、**阵容画像+教练建议 `get_draft_composition`**、**一键赛后复盘 `get_match_coaching`**、版本走势 `get_hero_trend`

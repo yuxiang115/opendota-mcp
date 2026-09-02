@@ -2,6 +2,7 @@ import { z } from "zod";
 import { apiGet } from "../client.js";
 import { getCountries } from "../constants.js";
 import { gameModeName, heroRef, laneRoleLabel, lobbyTypeName, patchName, rankTierToLabel, regionName, enrichPlayerMatchRow, formatTimestamp } from "../mapping.js";
+import { sampleFields } from "../stats.js";
 import { effectiveLanguage, languageParam, playerFilterShape, toQuery, type ToolDef } from "./registry.js";
 
 const accountId = z
@@ -157,29 +158,149 @@ export const playerTools: ToolDef[] = [
   },
   {
     name: "get_player_peers",
-    description: "Players this player has played with most: names, games together, wins, win rate.",
+    description:
+      "People this player plays with most (party/duo partners): games together, win rate as a duo, and " +
+      "per-game averages while together (GPM/XPM from the peer sums) — the 'how do we actually perform as a " +
+      "stack' view. Follow up on any peer with get_player(account_id) or get_player_matches(included_account_id=...) " +
+      "for hero-level detail.",
     schema: {
       account_id: accountId,
       limit: playerFilterShape.limit,
     },
     handler: async (args) => {
-      const rows = await apiGet<Record<string, any>[]>(`/players/${args.account_id}/peers`, {
-        query: toQuery({ limit: args.limit }),
-        ttl: "listing",
-      });
-      return rows.map((row) => {
+      // The peers endpoint ignores/mangles a limit param — page locally.
+      const rows = await apiGet<Record<string, any>[]>(`/players/${args.account_id}/peers`, { ttl: "listing" });
+      return (rows ?? []).slice(0, args.limit ?? 15).map((row) => {
         const games = (row.games ?? 0) as number;
+        const withGames = (row.with_games ?? 0) as number;
+        const withWins = (row.with_win ?? 0) as number;
         return {
           account_id: row.account_id,
           personaname: row.personaname ?? row.name,
-          last_played: formatTimestamp(row.last_played),
+          last_played_together: formatTimestamp(row.last_played),
           games,
           wins: row.win,
           win_rate_pct: games > 0 ? Math.round((row.win / games) * 1000) / 10 : undefined,
-          with_games: row.with_games,
+          as_duo: {
+            games: withGames,
+            wins: withWins,
+            win_rate_pct: withGames > 0 ? Math.round((withWins / withGames) * 1000) / 10 : undefined,
+            ...(withGames > 0 && row.with_gpm_sum != null
+              ? {
+                  avg_gpm_while_together: Math.round((row.with_gpm_sum / withGames) * 10) / 10,
+                  avg_xpm_while_together: Math.round((row.with_xpm_sum / withGames) * 10) / 10,
+                }
+              : {}),
+          },
           against_games: row.against_games,
         };
       });
+    },
+  },
+  {
+    name: "get_player_opponents",
+    description:
+      "People this player keeps getting MATCHED AGAINST: scans the player's recent match list and fetches each " +
+      "match to build an opponent ledger — who appears on the enemy side most, their rank, their favorite heroes " +
+      "vs this player, and this player's win rate against them. Answers 'who keeps queueing into me and do I beat " +
+      "them?'. COSTS one request per scanned match (default 30, results disk-cached ~10 min) — use for one player " +
+      "at a time, not in bulk.",
+    schema: {
+      account_id: accountId,
+      limit_matches: z.number().int().min(10).max(60).optional().describe("Recent matches to scan (default 30)."),
+      min_encounters: z.number().int().min(1).max(20).optional().describe("Min times someone must appear on the enemy side (default 2)."),
+      significant: z
+        .number()
+        .int()
+        .min(0)
+        .max(1)
+        .optional()
+        .describe("1 = ranked/standard modes only (recommended for 'who do I keep queueing into'); omit for all modes."),
+      language: languageParam,
+    },
+    handler: async (args, ctx) => {
+      const lang = effectiveLanguage(args.language, ctx);
+      const history = await apiGet<{ match_id: number }[]>(`/players/${args.account_id}/matches`, {
+        query: { limit: args.limit_matches ?? 30, significant: args.significant },
+        ttl: "listing",
+      });
+      const matches = (
+        await Promise.all(
+          (history ?? []).slice(0, args.limit_matches ?? 30).map((h) =>
+            apiGet<Record<string, any>>(`/matches/${h.match_id}`, { ttl: "match", timeoutMs: 20_000 }).catch(() => null),
+          ),
+        )
+      ).filter(Boolean) as Record<string, any>[];
+      interface OppAgg {
+        name?: string;
+        rankTier?: number;
+        games: number;
+        myWins: number;
+        lastTime?: number;
+        heroes: Map<number, { games: number; myWins: number }>;
+      }
+      const opponents = new Map<number, OppAgg>();
+      for (const m of matches) {
+        const players: Record<string, any>[] = m.players ?? [];
+        const me = players.find((p) => p.account_id === args.account_id);
+        if (!me || m.radiant_win == null) continue;
+        const myRadiant = me.player_slot < 128;
+        const myWin = m.radiant_win === myRadiant;
+        for (const p of players) {
+          if (p.account_id == null || p.account_id === args.account_id) continue;
+          const sameSide = (p.player_slot < 128) === myRadiant;
+          if (sameSide) continue;
+          const agg: OppAgg = opponents.get(p.account_id) ?? { games: 0, myWins: 0, lastTime: 0, heroes: new Map() };
+          agg.games += 1;
+          if (myWin) agg.myWins += 1;
+          if (p.personaname) agg.name = p.personaname;
+          if (p.rank_tier != null) agg.rankTier = p.rank_tier;
+          agg.lastTime = Math.max(agg.lastTime ?? 0, m.start_time ?? 0);
+          if (p.hero_id != null) {
+            const h = agg.heroes.get(p.hero_id) ?? { games: 0, myWins: 0 };
+            h.games += 1;
+            if (myWin) h.myWins += 1;
+            agg.heroes.set(p.hero_id, h);
+          }
+          opponents.set(p.account_id, agg);
+        }
+      }
+      const rows = await Promise.all(
+        [...opponents.entries()]
+          .filter(([, a]) => a.games >= (args.min_encounters ?? 2))
+          .sort((a, b) => b[1].games - a[1].games)
+          .slice(0, 15)
+          .map(async ([id, a]) => {
+            const heroes = await Promise.all(
+              [...a.heroes.entries()]
+                .sort((x, y) => y[1].games - x[1].games)
+                .slice(0, 3)
+                .map(async ([heroId, h]) => ({
+                  hero: (await heroRef(heroId, lang))?.name ?? `hero ${heroId}`,
+                  games: h.games,
+                  my_win_rate_pct: Math.round((h.myWins / h.games) * 1000) / 10,
+                })),
+            );
+            return {
+              player: a.name ?? `account ${id}`,
+              account_id: id,
+              ...(a.rankTier != null ? { rank_tier: rankTierToLabel(a.rankTier, undefined, lang), rank_tier_raw: a.rankTier } : {}),
+              encounters: a.games,
+              my_win_rate_pct: Math.round((a.myWins / a.games) * 1000) / 10,
+              ...sampleFields(a.games, a.myWins),
+              their_heroes_vs_me: heroes,
+              last_encounter: a.lastTime ? formatTimestamp(a.lastTime) : undefined,
+            };
+          }),
+      );
+      const times = matches.map((m) => m.start_time).filter(Boolean);
+      return {
+        account_id: args.account_id,
+        matches_scanned: matches.length,
+        ...(times.length ? { scanned_range: `${formatTimestamp(Math.min(...times))} → ${formatTimestamp(Math.max(...times))}` } : {}),
+        repeat_opponents: rows,
+        note: "Encounters are counted within the scanned window only. my_win_rate_pct is the scanned player's win rate against that opponent. For teammate analysis use get_player_peers.",
+      };
     },
   },
   {
