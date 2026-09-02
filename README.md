@@ -125,6 +125,22 @@ trend tool supports all 8 fine brackets. All win rates are recomputed from raw
 counts and every row carries `win_rate_ci95_pp` / `low_sample` so agents quote
 numbers honestly. STRATZ requests are cached (30 min) and rate-throttled.
 
+### HTTP deployment (Docker)
+
+For a shared always-on server (remote MCP clients instead of per-host stdio):
+
+```bash
+git clone https://github.com/yuxiang115/opendota-mcp.git && cd opendota-mcp
+printf 'OPENDOTA_HTTP_TOKEN=%s\n' "$(openssl rand -hex 24)" > .env
+docker compose up -d --build   # MCP Streamable HTTP on 127.0.0.1:8787/mcp
+```
+
+Clients authenticate with `Authorization: Bearer <OPENDOTA_HTTP_TOKEN>`.
+Put nginx (or any TLS proxy) in front for HTTPS — disable buffering and raise
+read timeouts for the SSE stream. `/healthz` is an unauthenticated liveness
+probe. Running the image without compose: set `OPENDOTA_TRANSPORT=http` and
+`PORT`. The disk cache persists in the `opendota-cache` volume.
+
 ### Claude Code
 
 ```bash

@@ -106,6 +106,21 @@ OpenDota 的公开场景端点已不支持按天梯分段过滤，英雄对英�
 
 分段参数映射 STRATZ 的档位（`herald_guardian` … `divine_immortal`）；趋势工具支持全部 8 档细分。所有胜率由原始计数重新计算，每行带 `win_rate_ci95_pp` / `low_sample`，让 agent 诚实引用数字。STRATZ 请求带缓存（30 分钟）和限流。
 
+### HTTP 部署（Docker）
+
+需要常驻共享服务器（远程 MCP 客户端接入，替代每台机器本地 stdio）时：
+
+```bash
+git clone https://github.com/yuxiang115/opendota-mcp.git && cd opendota-mcp
+printf 'OPENDOTA_HTTP_TOKEN=%s\n' "$(openssl rand -hex 24)" > .env
+docker compose up -d --build   # 在 127.0.0.1:8787/mcp 提供 MCP Streamable HTTP
+```
+
+客户端用 `Authorization: Bearer <OPENDOTA_HTTP_TOKEN>` 鉴权。前置 nginx（或任意
+TLS 代理）做 HTTPS —— 对 SSE 流关闭缓冲、调大读超时。`/healthz` 是无鉴权存活探
+针。不用 compose 直接跑镜像时设置 `OPENDOTA_TRANSPORT=http` 和 `PORT`。磁盘缓存
+持久化在 `opendota-cache` 卷里。
+
 ### Claude Code
 
 ```bash
