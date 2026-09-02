@@ -719,6 +719,20 @@ console.log("\n■ Regression R — STRATZ provider (bracket/position aggregates
       res.end(JSON.stringify([{ id: 60, name: "7.41" }]));
       return;
     }
+    if (/^\/api\/matches\/\d+$/.test(p)) {
+      // Two-player match for get_match_coaching: radiant wins; dire player 7654321 doubles bracket-avg deaths.
+      res.end(
+        JSON.stringify({
+          radiant_win: true,
+          duration: 1800,
+          players: [
+            { hero_id: 44, player_slot: 0, account_id: 1234, personaname: "A", level: 20, kills: 8, deaths: 4, assists: 6, hero_damage: 19600, tower_damage: 3800, gold_per_min: 600, rank_tier: 65 },
+            { hero_id: 36, player_slot: 128, account_id: 7654321, personaname: "B", level: 16, kills: 3, deaths: 12, assists: 4, hero_damage: 25000, tower_damage: 1400, gold_per_min: 450, rank_tier: 65 },
+          ],
+        }),
+      );
+      return;
+    }
     if (p === "/api/heroes/44/durations" || p === "/api/heroes/36/durations") {
       const h44 = p.includes("/44/");
       res.end(
@@ -770,8 +784,8 @@ console.log("\n■ Regression R — STRATZ provider (bracket/position aggregates
         } else if (q.includes("stats(heroIds")) {
           send({
             stats: [
-              { heroId: 44, matchCount: 11008, winCount: 5994, heroDamage: 19621, physicalDamage: 18250, magicalDamage: 27, towerDamage: 3874, disableDuration: 5, healingAllies: 0.1, networth: 20019 },
-              { heroId: 36, matchCount: 29993, winCount: 14788, heroDamage: 25205, physicalDamage: 2640, magicalDamage: 15792, towerDamage: 1495, disableDuration: 65, healingAllies: 4565, networth: 19493 },
+              { heroId: 44, matchCount: 11008, winCount: 5994, level: 22, kills: 9, deaths: 5, assists: 7, heroDamage: 19621, physicalDamage: 18250, magicalDamage: 27, towerDamage: 3874, disableDuration: 5, healingAllies: 0.1, networth: 20019 },
+              { heroId: 36, matchCount: 29993, winCount: 14788, level: 20, kills: 5, deaths: 5, assists: 8, heroDamage: 25205, physicalDamage: 2640, magicalDamage: 15792, towerDamage: 1495, disableDuration: 65, healingAllies: 4565, networth: 19493 },
             ],
           });
         } else if (q.includes("abilityMinLevel")) {
@@ -811,8 +825,8 @@ console.log("\n■ Regression R — STRATZ provider (bracket/position aggregates
     OPENDOTA_BUNDLE_PERSIST: "0",
   });
   const scTools = (await sc.listTools()).tools;
-  ok("STRATZ token → 61 tools incl. the 9 STRATZ tools", scTools.length === 61, `got ${scTools.length}`);
-  for (const n of ["get_matchups_by_rank", "get_item_builds_by_rank", "get_talent_stats", "get_lane_matchups", "get_draft_advice", "get_skill_builds_by_rank", "get_hero_position_stats", "get_draft_composition", "get_hero_trend"]) {
+  ok("STRATZ token → 62 tools incl. the 10 STRATZ tools", scTools.length === 62, `got ${scTools.length}`);
+  for (const n of ["get_matchups_by_rank", "get_item_builds_by_rank", "get_talent_stats", "get_lane_matchups", "get_draft_advice", "get_skill_builds_by_rank", "get_hero_position_stats", "get_draft_composition", "get_match_coaching", "get_hero_trend"]) {
     ok(`registers ${n}`, scTools.some((t) => t.name === n));
   }
 
@@ -887,6 +901,15 @@ console.log("\n■ Regression R — STRATZ provider (bracket/position aggregates
     comp.coach_notes?.some((n) => /Pipe|BKB/.test(n)) && comp.coach_notes?.some((n) => /outscale|sustain|healing/i.test(n)),
     head(comp.coach_notes),
   );
+
+  const coach = await call(sc, "get_match_coaching", { match_id: 999, focus_account_id: 7654321 });
+  ok("match coaching: bracket detected from medals", /Legend–Ancient/.test(coach.bracket ?? ""), coach.bracket);
+  ok(
+    "match coaching: loser flagged against bracket averages",
+    coach.players_vs_bracket_avg?.some((p) => p.account_id === 7654321 && p.focus === true && (p.vs_bracket_avg_pct?.deaths ?? 0) > 50),
+    JSON.stringify(coach.players_vs_bracket_avg?.find((p) => p.account_id === 7654321)?.vs_bracket_avg_pct),
+  );
+  ok("match coaching: timing verdict present", typeof coach.timing_verdict === "string" && coach.timing_verdict.length > 20, head(coach.timing_verdict));
 
   await sc.close();
 

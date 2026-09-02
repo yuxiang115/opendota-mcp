@@ -16,7 +16,7 @@ Built so an agent can answer questions like *"敌法师克制哪些英雄？"*, 
 - **Statistically honest aggregates**: every win rate carries a 95% confidence half-width (`win_rate_ci95_pp`) and small samples are flagged `low_sample`, so agents say "countered, 62% ± 4" instead of quoting noise as fact.
 - **28 languages** for hero/item/ability names (English, 简体中文, 繁體中文, Русский, Español, Português, Français, Deutsch, 日本語, 한국어, ไทย, Tiếng Việt, Türkçe, + more), generated from Valve's official localized game data. Per-tool `language` parameter or a global default via env.
 - **Agent-friendly entry points**: `search_dota_entities` resolves any localized or English name ("敌法师", "blink dagger", "祈求者") to the ids other tools need; `search_players` finds account ids by display name.
-- **Optional STRATZ layer** (`STRATZ_API_TOKEN`, free): nine rank-bracket/position-split aggregate tools with full-pool samples — bracket counters, item builds, talent/skill stats, lane matchups, position stats, patch trends, counter-pick and full lineup composition analysis with data-backed coaching notes.
+- **Optional STRATZ layer** (`STRATZ_API_TOKEN`, free): ten rank-bracket/position-split aggregate tools with full-pool samples — bracket counters, item builds, talent/skill stats, lane matchups, position stats, patch trends, counter-pick and full lineup composition analysis with data-backed coaching notes.
 - **Guidance baked in**: 4 registered MCP prompts (`match-analysis`, `player-review`, `hero-guide`, `meta-report`) plus a loadable [Agent Skill](./skill/SKILL.md) encoding the full analysis playbook.
 - **Polite API client**: built-in token-bucket rate limiting (respects the 60/min free tier), response caching with disk persistence, 429 handling, and optional `OPENDOTA_API_KEY` support.
 
@@ -73,14 +73,14 @@ the skill too — it just shortens the agent's path to the right tools.
 | `OPENDOTA_LANGUAGE` | `english` | Default language for hero/item/ability names. Accepts Steam codes (`schinese`) or tags (`zh-CN`). |
 | `OPENDOTA_BASE_URL` | `https://api.opendota.com/api` | Point at a self-hosted OpenDota instance if you run one. |
 | `OPENDOTA_RATE_LIMIT` | `55` (or `1200` with a key) | Max requests/minute the client will send. |
-| `STRATZ_API_TOKEN` | *(none)* | **Enables the STRATZ tools.** Free token from [stratz.com/api](https://stratz.com/api) (Steam login). Adds 9 rank-bracket/position-split aggregate tools (see below). |
+| `STRATZ_API_TOKEN` | *(none)* | **Enables the STRATZ tools.** Free token from [stratz.com/api](https://stratz.com/api) (Steam login). Adds 10 rank-bracket/position-split aggregate tools (see below). |
 | `STRATZ_BASE_URL` | `https://api.stratz.com/graphql` | Override for testing. |
 
 ### STRATZ-powered bracket stats (optional)
 
 OpenDota's public scenario endpoints no longer filter by rank bracket and its
 hero-vs-hero aggregates draw from a small parsed-match sample (~100 games per
-pairing). When `STRATZ_API_TOKEN` is set, nine additional tools register,
+pairing). When `STRATZ_API_TOKEN` is set, ten additional tools register,
 backed by [STRATZ](https://stratz.com)'s GraphQL API with full-pool samples
 (tens of thousands of games) and bracket/position filters:
 
@@ -92,6 +92,7 @@ backed by [STRATZ](https://stratz.com)'s GraphQL API with full-pool samples
 | `get_skill_builds_by_rank` | Skill builds per bracket/position: at what hero level each ability gets its first point and is maxed, with share + win rates. |
 | `get_hero_position_stats` | Per-position games, win rates and full per-game profile (K/D/A, damage, tower damage) — is the hero a 1 or a 4? |
 | `get_draft_composition` | **Coach-level lineup analysis**: damage mix, control concentration, sustain gap, early/mid/late windows for both teams + data-backed coaching notes. |
+| `get_match_coaching` | **One-call post-game coaching report**: feed a match_id — auto-detects the bracket from player medals, both lineups portrait, every player vs bracket averages, timing verdict, coach notes. |
 | `get_lane_matchups` | Lane-phase outcomes (win/loss/draw) vs each opponent hero. |
 | `get_draft_advice` | Given the enemy lineup (+ your allies), ranks counter picks with per-enemy win rates and ally synergy. |
 | `get_hero_trend` | Win rate per patch (all 8 brackets supported) — is the hero still good after the nerf? |

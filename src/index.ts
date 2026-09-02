@@ -41,7 +41,7 @@ import { registerPrompts } from "./prompts.js";
 import { STRATZ_ENABLED } from "./stratz.js";
 import { stratzTools } from "./tools/stratz.js";
 
-const PACKAGE_VERSION = "0.13.0";
+const PACKAGE_VERSION = "0.14.0";
 
 const allTools: ToolDef[] = [
   ...systemTools,

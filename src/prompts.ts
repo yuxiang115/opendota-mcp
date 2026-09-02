@@ -32,15 +32,18 @@ export function registerPrompts(server: McpServer): void {
     ({ match_id, focus_account_id, language }) =>
       userPrompt(`请完整复盘 Dota 2 比赛 ${match_id}，按以下工作流（数据全部来自 opendota MCP 工具，不要凭记忆编造）：
 
-1. get_match(match_id=${match_id}, language="${language ?? "schinese"}", include={picks_bans:true, graphs:true})
+1. get_match_coaching(match_id=${match_id}${focus_account_id ? `, focus_account_id=${focus_account_id}` : ""})${STRATZ_ENABLED ? "" : "（STRATZ 未配置时跳过此步）"}
+   → 一键教练报告：阵容画像（伤害构成/控制集中/续航）、每人 vs 分段基准（vs_bracket_avg_pct）、
+   时间窗判决（timing_verdict）、coach_notes。复盘从这里开始。
+2. get_match(match_id=${match_id}, language="${language ?? "schinese"}", include={picks_bans:true, graphs:true})
    - 先看 parsed 字段：如果为 false，先 request_match_parse(match_id) 等解析完成再重新 get_match 加 include={teamfights:true, objectives:true}
-2. 比赛叙事：用 losing_team_max_gold_lead/deficit 和 radiant_gold_advantage_by_minute 找转折点分钟数
-3. 分路结论：每个玩家的 lane_result（won/lost/draw，官方 Story 口径）+ position + lane_efficiency_pct
-4. 定责方法（有 position 数据时）：按 position 对位比经济（gold_per_min）、参团率 teamfight_participation、
-   英雄伤害 hero_damage、死亡数；position_basis 不是 "position_est"/"official_algorithm" 时说明这是推测
-5. ${focus_account_id ? `重点关注 account_id=${focus_account_id}：出装时间线（items 的 purchased_at）、技能加点、死亡原因（breakdown 的 killed_by）` : "选出全场 MVP 和最大问题点"}
-6. 出装审查：对照对面阵容检查关键针对装（闪避→MKB、回复→治疗削减等），用 get_item_details 查不确定的物品效果
-7. 结论：输/赢的 2-3 个根本原因，每条附数据证据
+3. 比赛叙事：用 losing_team_max_gold_lead/deficit 和 radiant_gold_advantage_by_minute 找转折点分钟数
+4. 分路结论：每个玩家的 lane_result（won/lost/draw，官方 Story 口径）+ position + lane_efficiency_pct
+5. 定责方法：优先用 get_match_coaching 的 vs_bracket_avg_pct（低于分段常态的维度），
+   结合 position 对位比经济/参团率/伤害；position_basis 不是 "position_est"/"official_algorithm" 时说明这是推测
+6. ${focus_account_id ? `重点关注 account_id=${focus_account_id}：出装时间线（items 的 purchased_at）、技能加点、死亡原因（breakdown 的 killed_by）` : "选出全场 MVP 和最大问题点"}
+7. 出装审查：对照对面阵容检查关键针对装（闪避→MKB、回复→治疗削减等），用 get_item_details 查不确定的物品效果${STRATZ_ENABLED ? "；可疑的关键装备用 get_item_winrate_vs_hero 查该对位出/不出的胜率差" : ""}
+8. 结论：输/赢的 2-3 个根本原因，每条附数据证据 + 每条给一个下局可执行的改进
 
 ${langLine(language ?? "schinese")}`),
   );

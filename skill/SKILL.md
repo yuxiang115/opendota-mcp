@@ -15,17 +15,25 @@ description: Analyze Dota 2 matches, players, heroes, and the current meta throu
 
 ## 常用工作流
 
-### 教练级 BP/阵容建议（"这把怎么打"）
+### 赛后复盘（"这把为什么输"）——主场景
 ```
-0. 问清用户分段和已选英雄（阵容建议必须带 bracket）
-1. get_draft_composition(team, enemy, bracket) → 伤害构成/控制集中度/续航差/前后期窗口 + coach_notes
-2. get_draft_advice(enemy, ally, bracket) → 反制推荐（克制数+对位胜率+队友协同）
-3. 英雄细节三件套（推荐英雄或用户主英雄）:
-   get_hero_position_stats（打几号位最好）→ get_skill_builds_by_rank（几级点/满）→
-   get_item_builds_by_rank + get_item_winrate_vs_hero（出装时间线+对位特化）
-4. get_lane_matchups（对线难易）+ get_talent_stats（天赋胜率）
-5. 综合：窗口期打法（30分钟前避战/抢节奏）、ban 建议（控制集中度>50%的英雄）、
-   针对装（对面魔法>70% → Pipe/BKB；续航强 → 大骨灰/希瓦）
+1. get_match_coaching(match_id, focus_account_id=问的人) → 一键教练报告:
+   阵容画像(伤害构成/控制集中/续航) + 每人 vs 分段基准(vs_bracket_avg_pct)
+   + 时间窗判决(timing_verdict) + coach_notes
+2. 定责读数: vs_bracket_avg_pct 负值大的维度 = 该玩家低于分段常态的表现
+   (例: GPM 正但 tower_damage -100% → 发育好但零推进贡献)
+3. 深挖(按需):
+   ├─ get_match(include={teamfights,objectives,graphs}) → 团战/转折点/对线细节
+   ├─ get_item_winrate_vs_hero → 出装复盘("这局该不该出X vs 对面核心")
+   ├─ get_skill_builds_by_rank / get_talent_stats → 加点天赋 vs 分段主流
+   └─ 未解析 → request_match_parse 再深挖
+4. 结论格式: 2-3 个败因, 每条附数据证据 + 一条可执行改进
+```
+
+### 赛前 BP（少数场景）
+```
+问清分段和已选英雄 → get_draft_composition(画像) → get_draft_advice(反制)
+→ get_hero_position_stats(位置) → 三件套细化(加点/出装/天赋)
 ```
 
 ### 比赛复盘（"为什么输"）
