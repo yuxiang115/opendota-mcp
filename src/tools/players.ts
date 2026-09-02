@@ -81,7 +81,8 @@ export const playerTools: ToolDef[] = [
     name: "get_player_recent_matches",
     description:
       "Get a player's ~20 most recent matches (regardless of filters), enriched with hero names, win/loss, " +
-      "KDA, game mode, skill bracket.",
+      "KDA, game mode, skill bracket. OpenDota's index can lag (hours to days for Turbo/unranked) — if these " +
+      "look older than the user's actual latest games, call refresh_player first, then re-query.",
     schema: {
       account_id: accountId,
       language: languageParam,

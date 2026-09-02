@@ -41,7 +41,7 @@ import { registerPrompts } from "./prompts.js";
 import { STRATZ_ENABLED } from "./stratz.js";
 import { stratzTools } from "./tools/stratz.js";
 
-const PACKAGE_VERSION = "0.18.0";
+const PACKAGE_VERSION = "0.18.1";
 
 const allTools: ToolDef[] = [
   ...systemTools,
@@ -71,11 +71,19 @@ const server = new McpServer(
       "meta-report) which encode the full playbook. (4) Unparsed matches return a note — call " +
       "request_match_parse to unlock deep data. (5) Position fields carry position_basis; treat " +
       "farm_order_only as a low-confidence guess. " +
+      "(6) DATA FRESHNESS: OpenDota's index lags — sometimes by hours, occasionally days for unranked " +
+      "modes like Turbo. If the user mentions games that are missing from their recent list, call " +
+      "refresh_player(account_id) once, wait a few seconds, then re-query. ALL timestamps in responses are " +
+      "UTC — ALWAYS convert to the user's local timezone (you usually know it from the user's profile) " +
+      "before quoting dates/times, and label the timezone. " +
+      "(7) ALWAYS use these tools for Dota data — never fetch api.opendota.com yourself (via exec/curl/" +
+      "web tools): raw responses contain untranslated numeric ids, no caching, and burn the user's rate " +
+      "limit. Everything the API offers is exposed here, already enriched and cached. " +
       (STRATZ_ENABLED
-        ? "(6) Rank-bracket/position-split aggregates (get_matchups_by_rank, get_item_builds_by_rank, " +
-          "get_talent_stats, get_lane_matchups, get_draft_advice, get_hero_trend) come from STRATZ with much " +
-          "larger samples than the OpenDota scenario tools — prefer them for counter/item/talent/lane/draft " +
-          "questions, and quote win rates with their ci95_pp. "
+        ? "(8) Rank-bracket/position-split aggregates (get_matchups_by_rank, get_item_builds_by_rank, " +
+          "get_talent_stats, get_skill_builds_by_rank, get_lane_matchups, get_draft_advice, get_hero_trend) come " +
+          "from STRATZ with much larger samples than the OpenDota scenario tools — prefer them for " +
+          "counter/item/talent/lane/draft questions, and quote win rates with their ci95_pp. "
         : "") +
       `Names are localized (default ${ctx.defaultLanguage}; per-call language param or OPENDOTA_LANGUAGE env). ` +
       "Free tier ~60 requests/min; set OPENDOTA_API_KEY for more.",
