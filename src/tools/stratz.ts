@@ -410,6 +410,73 @@ const rawStratzTools: ToolDef[] = [
     },
   },
   {
+    name: "get_skill_builds_by_rank",
+    description:
+      "Skill build stats WITH RANK-BRACKET AND POSITION FILTER, from STRATZ: for each ability, at what " +
+      "HERO LEVEL players first put a point in it and at what hero level they max it, with games, share " +
+      "and win rates. Answers 'when does PA take ult / at what level is Strike maxed at my bracket'. " +
+      "Pairs with get_talent_stats (talent choices) and the OpenDota get_skill_builds (exact per-level " +
+      "order, all brackets). Source: stratz.com; requires STRATZ_API_TOKEN.",
+    schema: {
+      hero: heroArg,
+      bracket: bracketArg,
+      position: positionArg,
+      language: languageParam,
+    },
+    handler: async (args, ctx) => {
+      const lang = effectiveLanguage(args.language, ctx);
+      const heroId = await resolveHeroId(args.hero, lang);
+      if (typeof heroId === "object") return heroId;
+      const data = await stratzQuery<{ heroStats: Record<string, { abilityId: number; level: number; matchCount: number; winCount: number }[] | undefined> }>(
+        "abilityLevels",
+        `query { heroStats { mn: abilityMinLevel(heroId: ${heroId}${bracketFilter(args.bracket)}${positionFilter(args.position)}) ` +
+          `{ abilityId level matchCount winCount } mx: abilityMaxLevel(heroId: ${heroId}${bracketFilter(args.bracket)}${positionFilter(args.position)}) ` +
+          `{ abilityId level matchCount winCount } } }`,
+      );
+      const mn = data?.heroStats?.mn ?? [];
+      const mx = data?.heroStats?.mx ?? [];
+      // Keep only the hero's own kit abilities (rows also include talents and facet-granted skills).
+      const internalHero = getLocaleBundle("english").heroes[String(heroId)]?.internal ?? "";
+      const kit = await getHeroAbilities().then((t) => t[internalHero]).catch(() => undefined);
+      const abilityIds = await getAbilityIds().catch(() => ({}) as Record<string, string>);
+      const internalToId = new Map(Object.entries(abilityIds).map(([id, internal]) => [String(internal), Number(id)]));
+      const kitIds = (kit?.abilities ?? []).map((a) => internalToId.get(a)).filter((id): id is number => id != null);
+      const dominant = (rows: typeof mn) => {
+        if (!rows.length) return undefined;
+        const total = rows.reduce((s, r) => s + r.matchCount, 0);
+        const sorted = rows.slice().sort((a, b) => b.matchCount - a.matchCount);
+        const main = sorted[0];
+        const alts = sorted.slice(1, 3).filter((r) => r.matchCount / total >= 0.05);
+        return {
+          hero_level: main.level,
+          games: main.matchCount,
+          share_pct: Math.round((main.matchCount / total) * 1000) / 10,
+          win_rate_pct: pct(main.winCount, main.matchCount),
+          ...sampleFields(main.matchCount, main.winCount),
+          ...(alts.length
+            ? { alternatives: alts.map((r) => ({ hero_level: r.level, share_pct: Math.round((r.matchCount / total) * 1000) / 10, win_rate_pct: pct(r.winCount, r.matchCount) })) }
+            : {}),
+        };
+      };
+      const rows = await Promise.all(
+        kitIds.map(async (id) => {
+          const ref = await abilityRef(id, lang);
+          const first = dominant(mn.filter((r) => r.abilityId === id));
+          const maxed = dominant(mx.filter((r) => r.abilityId === id));
+          return { ability: ref?.name ?? `ability ${id}`, ...(first ? { first_point: first } : {}), ...(maxed ? { maxed: maxed } : {}) };
+        }),
+      );
+      return {
+        hero: (await heroRef(heroId, lang))?.name,
+        bracket: args.bracket ? BRACKET_LABEL[args.bracket] : "all brackets",
+        position: args.position ? `position ${args.position}` : "all positions",
+        abilities: rows.filter((r) => r.first_point || r.maxed),
+        note: "first_point = hero level when the ability gets its first skill point (dominant choice + share); maxed = hero level when it reaches its final level. Talents/facet skills are excluded — use get_talent_stats.",
+        source: "stratz.com",
+      };
+    },
+  },
+  {
     name: "get_hero_trend",
     description:
       "Hero win rate per PATCH (optionally per fine rank bracket), from STRATZ — shows whether a hero is being " +

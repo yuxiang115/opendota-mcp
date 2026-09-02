@@ -749,6 +749,21 @@ console.log("\n■ Regression R — STRATZ provider (bracket/position aggregates
         } else if (q.includes("gameVersions")) {
           res.end(JSON.stringify({ data: { constants: { gameVersions: [{ id: 200, name: "7.99" }, { id: 199, name: "7.98" }] } } }));
           return;
+        } else if (q.includes("abilityMinLevel")) {
+          res.end(
+            JSON.stringify({
+              data: {
+                heroStats: {
+                  mn: [
+                    { abilityId: 5190, level: 1, matchCount: 100, winCount: 50 },
+                    { abilityId: 483, level: 10, matchCount: 999, winCount: 500 },
+                  ],
+                  mx: [{ abilityId: 5190, level: 7, matchCount: 40, winCount: 24 }],
+                },
+              },
+            }),
+          );
+          return;
         } else if (q.includes("talent")) {
           send({ talent: [{ abilityId: 483, matchCount: 1000, winCount: 600 }] });
         } else {
@@ -771,8 +786,8 @@ console.log("\n■ Regression R — STRATZ provider (bracket/position aggregates
     OPENDOTA_BUNDLE_PERSIST: "0",
   });
   const scTools = (await sc.listTools()).tools;
-  ok("STRATZ token → 57 tools incl. the 6 STRATZ tools", scTools.length === 58, `got ${scTools.length}`);
-  for (const n of ["get_matchups_by_rank", "get_item_builds_by_rank", "get_talent_stats", "get_lane_matchups", "get_draft_advice", "get_hero_trend"]) {
+  ok("STRATZ token → 59 tools incl. the 7 STRATZ tools", scTools.length === 59, `got ${scTools.length}`);
+  for (const n of ["get_matchups_by_rank", "get_item_builds_by_rank", "get_talent_stats", "get_lane_matchups", "get_draft_advice", "get_skill_builds_by_rank", "get_hero_trend"]) {
     ok(`registers ${n}`, scTools.some((t) => t.name === n));
   }
 
@@ -822,6 +837,15 @@ console.log("\n■ Regression R — STRATZ provider (bracket/position aggregates
   // Identical aggregates are served from cache — one upstream GraphQL call per unique query.
   await call(sc, "get_matchups_by_rank", { hero: "幻影刺客", bracket: "divine_immortal", take: 3, language: "schinese" });
   ok("stratz responses cached (no duplicate upstream query)", gqlHits - hitsBefore === 6, `gql calls since boot section: ${gqlHits - hitsBefore}`);
+
+  const sb = await call(sc, "get_skill_builds_by_rank", { hero: 44, bracket: "divine_immortal" });
+  const dagger = sb.abilities?.find((a) => /dagger/i.test(a.ability));
+  ok(
+    "skill builds: first point + maxed level with share",
+    dagger?.first_point?.hero_level === 1 && dagger?.first_point?.share_pct === 100 && dagger?.maxed?.hero_level === 7 && dagger?.maxed?.win_rate_pct === 60,
+    head(dagger),
+  );
+  ok("skill builds: talents excluded from ability list", !sb.abilities?.some((a) => /phantom_assassin_4|talent/i.test(a.ability)), sb.abilities?.map((a) => a.ability).join(","));
 
   await sc.close();
 
