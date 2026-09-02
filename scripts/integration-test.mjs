@@ -1155,6 +1155,74 @@ console.log("\n■ Regression W — tiered cache: parsed matches are long-cached
 }
 
 // ─────────────────────────────────────────────────────────────
+console.log("\n■ X: community nickname aliases (黑话)");
+{
+  // X1: builtin table integrity — every target must exist in current constants.
+  const [aliasesMod, constantsMod, localesMod] = await Promise.all([
+    import("../dist/aliases.js"),
+    import("../dist/constants.js"),
+    import("../dist/locales.js"),
+  ]);
+  const validHeroes = new Set(
+    Object.values(localesMod.getLocaleBundle("english").heroes).map((e) => e.internal.replace(/^npc_dota_hero_/, "")),
+  );
+  const validItems = new Set(Object.values(await constantsMod.getItemIds()).map(String));
+  let bad = [];
+  for (const [a, t] of Object.entries(aliasesMod.BUILTIN_HERO_ALIASES)) if (!validHeroes.has(t)) bad.push(`hero ${a}->${t}`);
+  for (const [a, t] of Object.entries(aliasesMod.BUILTIN_ITEM_ALIASES)) if (!validItems.has(t)) bad.push(`item ${a}->${t}`);
+  for (const [a, ts] of Object.entries(aliasesMod.BUILTIN_AMBIGUOUS_HEROES)) {
+    for (const t of ts) if (!validHeroes.has(t)) bad.push(`ambiguous ${a}->${t}`);
+  }
+  ok("builtin alias tables: every target exists in current constants", bad.length === 0, bad.slice(0, 4).join("; "));
+  ok("builtin coverage is substantial", Object.keys(aliasesMod.BUILTIN_HERO_ALIASES).length >= 100 && Object.keys(aliasesMod.BUILTIN_ITEM_ALIASES).length >= 50);
+
+  // The long-lived `client` from Boot #1 may already be closed by earlier sections —
+  // X runs on its own instance.
+  const xClient = await boot({ OPENDOTA_LANGUAGE: "schinese" });
+
+  // X2: hero nicknames resolve through search (exact hit ranked first, marked via:nickname).
+  const ember = await call(xClient, "search_dota_entities", { query: "火猫", language: "schinese" });
+  const emberHit = ember.matches?.find((m) => m.kind === "hero" && m.id === 106 && m.via === "nickname");
+  ok("火猫 -> Ember Spirit (106) via nickname", !!emberHit, head(ember));
+  const sb = await call(xClient, "get_hero_kit", { hero: "白牛", language: "schinese" });
+  ok("get_hero_kit(白牛) -> Spirit Breaker kit", sb.hero?.id === 71 || sb.hero?.name_en === "Spirit Breaker", head(sb.hero ?? sb));
+
+  // X3: item nicknames + EN codes resolve.
+  const vessel = await call(xClient, "search_dota_entities", { query: "大骨灰", language: "schinese" });
+  const vesselHit = vessel.matches?.find((m) => m.kind === "item" && m.internal === "spirit_vessel");
+  ok("大骨灰 -> spirit_vessel via nickname", !!vesselHit, head(vessel));
+  const od = await call(xClient, "get_hero_kit", { hero: "od", language: "schinese" });
+  ok("od (EN code) -> Outworld Destroyer", od.hero?.name_en === "Outworld Destroyer", head(od.hero ?? od));
+
+  // X4: ambiguous nicknames never guess — candidates are returned for the agent to ask.
+  const mk = await call(xClient, "search_dota_entities", { query: "猴子", language: "schinese" });
+  const ambIds = (mk.ambiguous?.candidates ?? []).map((c) => c.id).sort((a, b) => a - b);
+  ok("猴子 -> ambiguous with PL + MK candidates", !!mk.ambiguous && ambIds.length === 2 && ambIds.join(",") === "12,114", head(mk));
+  const kitAmb = await expectError(xClient, "get_hero_kit", { hero: "猴子", language: "schinese" });
+  ok("get_hero_kit(猴子) errors with candidates instead of guessing", kitAmb.isError || JSON.parse(kitAmb.text).ambiguous != null, head(kitAmb.text));
+
+  // X5: user extension file — custom aliases win, invalid targets are dropped silently.
+  const { mkdtempSync: mkAliasDir, writeFileSync: wfAlias } = await import("node:fs");
+  const aliasDir = mkAliasDir((await import("node:path")).join((await import("node:os")).tmpdir(), "opendota-mcp-aliases-"));
+  const aliasFile = (await import("node:path")).join(aliasDir, "aliases.json");
+  wfAlias(aliasFile, JSON.stringify({
+    heroes: { 我的本命: "ember_spirit", 坏条目: "not_a_real_hero" },
+    items: { 我的道具: "blink" },
+  }));
+  const aClient = await boot({ OPENDOTA_ALIASES_FILE: aliasFile, OPENDOTA_LANGUAGE: "schinese" });
+  const customHero = await call(aClient, "search_dota_entities", { query: "我的本命" });
+  const customItem = await call(aClient, "search_dota_entities", { query: "我的道具" });
+  const broken = await call(aClient, "search_dota_entities", { query: "坏条目" });
+  const builtinStill = await call(aClient, "search_dota_entities", { query: "火猫" });
+  ok("user alias file: custom hero alias resolves", customHero.matches?.[0]?.id === 106, head(customHero));
+  ok("user alias file: custom item alias resolves", customItem.matches?.[0]?.internal === "blink", head(customItem));
+  ok("user alias file: invalid target dropped without breaking boot", (broken.matches ?? []).length === 0);
+  ok("user alias file: builtin aliases still active", builtinStill.matches?.[0]?.id === 106);
+  await aClient.close();
+  await xClient.close();
+}
+
+// ─────────────────────────────────────────────────────────────
 console.log(`\n═══ 结果: ${passed} passed, ${failed} failed ═══`);
 if (failures.length) {
   console.log("Failures:");

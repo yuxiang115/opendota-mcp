@@ -49,6 +49,19 @@ npx opendota-mcp
 | `OPENDOTA_RATE_LIMIT` | 无 key 时 `55` | 客户端每分钟最大请求数。 |
 | `STRATZ_API_TOKEN` | *(无)* | **启用 STRATZ 工具组**。在 [stratz.com/api](https://stratz.com/api) 用 Steam 登录免费领取，新增 10 个分段/位置维度聚合工具（见下）。 |
 | `STRATZ_BASE_URL` | `https://api.stratz.com/graphql` | 测试用覆盖。 |
+| `OPENDOTA_ALIASES_FILE` | 存在时读 `~/.config/opendota-mcp/aliases.json` | 用户自定义黑话昵称映射（见下）。 |
+
+### 黑话昵称
+
+中国玩家很少用官方名称——火猫（灰烬之灵）、大骨灰（魂之灵瓮）、白牛（裂魂人）、跳刀（闪烁匕首）才是日常叫法。服务器内置 180+ 条精选昵称映射，所有接受名称的地方都生效：`search_dota_entities`、hero 参数、item 参数。**歧义昵称故意不解析**（猴子 = 幻影长矛手还是齐天大圣？ES = 四个猫？）——工具会返回候选列表让 agent 问用户，绝不瞎猜。
+
+缺哪个外号？写一个 JSON 到 `~/.config/opendota-mcp/aliases.json`（或用 `OPENDOTA_ALIASES_FILE` 指定路径）：
+
+```json
+{ "heroes": { "我的外号": "ember_spirit" }, "items": { "我的道具": "blink" } }
+```
+
+目标写 npc 内名；无效目标会被静默忽略，用户条目优先于内置表。欢迎 PR 补充 `src/aliases.ts`。
 
 ### Claude Code
 

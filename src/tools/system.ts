@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { apiGet } from "../client.js";
-import { CONSTANTS_RESOURCES, getConstantResource } from "../constants.js";
+import { CONSTANTS_RESOURCES, getConstantResource, getItemIds } from "../constants.js";
+import { getAliasTables, internalHeroToId, lookupHeroAlias, lookupItemAlias } from "../aliases.js";
 import { getLocaleBundle, LANGUAGE_LABELS, listBundledLanguages, SUPPORTED_LANGUAGES } from "../locales.js";
 import { languageParam, effectiveLanguage, type ToolDef } from "./registry.js";
 
@@ -65,6 +66,34 @@ export const systemTools: ToolDef[] = [
       // "Anti-Mage" and "敌法师" resolve regardless of the configured default.
       const localized = getLocaleBundle(lang);
 
+      // An EXACT ambiguous nickname (猴子/ES/BM) beats any substring fuzz — the
+      // substring scan would otherwise return unrelated abilities like 猴子猴孙.
+      const ambTargets = getAliasTables().ambiguous[q];
+      if (ambTargets) {
+        const candidates = ambTargets
+          .map((internal) => {
+            const id = internalHeroToId(internal);
+            if (id == null) return undefined;
+            const en = english.heroes[String(id)];
+            return {
+              kind: "hero",
+              id,
+              name: localized.heroes[String(id)]?.name || en?.name,
+              name_en: en?.name_en,
+            };
+          })
+          .filter((c) => c != null);
+        return {
+          query: args.query,
+          ambiguous: {
+            alias: args.query,
+            candidates,
+            ask_user: "This nickname means different heroes — ask the user which one they mean.",
+          },
+          matches: [],
+        };
+      }
+
       const results: Record<string, unknown>[] = [];
       const searchBundle = (bundle: ReturnType<typeof getLocaleBundle>) => {
         const searchTable = (table: "heroes" | "items" | "abilities", kind: (typeof ENTITY_KINDS)[number]) => {
@@ -99,6 +128,37 @@ export const systemTools: ToolDef[] = [
           if (code === "english") continue;
           searchBundle(getLocaleBundle(code));
           if (results.length > 0) break;
+        }
+      }
+      // Community nicknames (火猫, 大骨灰, ...) exist in no official table. An exact
+      // nickname hit outranks substring fuzz, so it is prepended, not just used as fallback.
+      const heroAlias = lookupHeroAlias(args.query);
+      if (heroAlias && "id" in heroAlias) {
+        const en = english.heroes[String(heroAlias.id)];
+        results.unshift({
+          kind: "hero",
+          id: heroAlias.id,
+          name: localized.heroes[String(heroAlias.id)]?.name || en?.name || heroAlias.internal,
+          name_en: en?.name_en,
+          internal: heroAlias.internal,
+          via: "nickname",
+        });
+      } else if (results.length === 0) {
+        const itemInternal = lookupItemAlias(args.query);
+        if (itemInternal) {
+          const ids = await getItemIds();
+          const id = Object.entries(ids).find(([, internal]) => String(internal) === itemInternal)?.[0];
+          if (id != null) {
+            const en = english.items[id];
+            results.push({
+              kind: "item",
+              id: Number(id),
+              name: localized.items[id]?.name || en?.name || itemInternal,
+              name_en: en?.name_en,
+              internal: itemInternal,
+              via: "nickname",
+            });
+          }
         }
       }
       return { query: args.query, matches: results };

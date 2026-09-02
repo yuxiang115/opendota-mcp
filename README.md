@@ -76,6 +76,27 @@ the skill too — it just shortens the agent's path to the right tools.
 | `OPENDOTA_RATE_LIMIT` | `55` (or `1200` with a key) | Max requests/minute the client will send. |
 | `STRATZ_API_TOKEN` | *(none)* | **Enables the STRATZ tools.** Free token from [stratz.com/api](https://stratz.com/api) (Steam login). Adds 10 rank-bracket/position-split aggregate tools (see below). |
 | `STRATZ_BASE_URL` | `https://api.stratz.com/graphql` | Override for testing. |
+| `OPENDOTA_ALIASES_FILE` | `~/.config/opendota-mcp/aliases.json` if present | Extra community-nickname mappings (see below). |
+
+### Community nicknames (黑话)
+
+Chinese players rarely call heroes/items by their official names — they say 火猫
+(Ember Spirit), 大骨灰 (Spirit Vessel), 白牛 (Spirit Breaker), 跳刀 (Blink Dagger).
+The server ships 180+ curated nickname mappings that work everywhere a name is
+accepted: `search_dota_entities`, hero params, item params. Ambiguous nicknames
+(猴子 = Phantom Lancer or Monkey King, ES = four different spirits) deliberately
+do **not** resolve — the tools return the candidates so the agent asks the user
+instead of guessing.
+
+Missing a nickname? Drop a JSON file at `~/.config/opendota-mcp/aliases.json`
+(or point `OPENDOTA_ALIASES_FILE` at it):
+
+```json
+{ "heroes": { "我的外号": "ember_spirit" }, "items": { "我的道具": "blink" } }
+```
+
+Targets are npc-internal names; invalid targets are ignored silently, and user
+entries override the builtins. PRs adding entries to `src/aliases.ts` are welcome.
 
 ### STRATZ-powered bracket stats (optional)
 

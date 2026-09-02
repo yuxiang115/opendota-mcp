@@ -9,9 +9,9 @@ description: Analyze Dota 2 matches, players, heroes, and the current meta throu
 
 ## 入口规则
 
-1. 任何名字 → id：`search_dota_entities`（英雄/物品/技能，支持中英文如"敌法师"）、`search_players`（玩家）
+1. 任何名字 → id：`search_dota_entities`（英雄/物品/技能，支持中英文如"敌法师"）、`search_players`（玩家）。**常见黑话昵称也直接认**（火猫/白牛/大骨灰/跳刀/BKB/PA…内置 180+ 条），hero/item 参数本身同样接受昵称；歧义昵称（猴子/ES/BM）会返回候选列表——**问用户是哪个，别猜**
 2. 玩家给的是 Steam 链接？`/players/<id>` 里的数字就是 account_id；Steam64 减 76561197960265728
-3. **search 失败时不要猜 account_id**——向用户要资料链接（工具会返回 hint）
+3. **search 失败时不要猜 account_id**——向用户要资料链接（工具会返回 hint）；表里没有的新外号可让用户写进 `~/.config/opendota-mcp/aliases.json`（重启生效）
 
 ## 常用工作流
 

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { apiGet } from "../client.js";
+import { heroLookupError, lookupHeroAlias } from "../aliases.js";
 import {
   getAbilities,
   getHeroAbilities,
@@ -88,6 +89,9 @@ export async function resolveHero(input: number | string, lang: string): Promise
   for (const [id, entry] of Object.entries(local)) {
     if (entry.name.toLowerCase() === q) return Number(id);
   }
+  // Community nicknames (火猫, 白牛, PA, ...) — ambiguous ones intentionally do not resolve.
+  const alias = lookupHeroAlias(input);
+  if (alias && "id" in alias) return alias.id;
   // Unique substring match as a last resort.
   const partial = Object.entries(english).filter(
     ([, e]) => e.name_en.toLowerCase().includes(q) || e.internal.includes(q),
@@ -116,7 +120,7 @@ export const referenceTools: ToolDef[] = [
       const lang = effectiveLanguage(args.language, ctx);
       const heroId = await resolveHero(args.hero, lang);
       if (heroId == null) {
-        return { error: `Unknown hero: ${args.hero}`, hint: "Resolve names to ids with search_dota_entities first." };
+        return heroLookupError(args.hero, lang);
       }
       const hero = await heroRef(heroId, lang);
       const internalHero = getLocaleBundle("english").heroes[String(heroId)]?.internal ?? "";

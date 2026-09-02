@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { apiGet } from "../client.js";
 import { getItemIds, getItems } from "../constants.js";
+import { lookupItemAlias } from "../aliases.js";
+import { getLocaleBundle } from "../locales.js";
 import { abilityRef, laneRoleLabel, rankTierToLabel } from "../mapping.js";
 import { itemInternalRef } from "../enrich.js";
 import { sampleFields } from "../stats.js";
@@ -12,14 +14,30 @@ const heroIdParam = z
   .positive()
   .describe("Hero id (resolve names with search_dota_entities first).");
 
-/** Resolve an item reference (numeric id / internal name / English display name) to its item id. */
-async function resolveItemIdInput(input: number | string): Promise<number | undefined> {
+/** Resolve an item reference (numeric id / internal name / English or localized display name / community nickname) to its item id. */
+async function resolveItemIdInput(input: number | string, lang = "english"): Promise<number | undefined> {
   if (typeof input === "number") return input;
   const q = input.trim().toLowerCase();
   const itemIds = await getItemIds();
   const items = await getItems();
+  const localItems = getLocaleBundle(lang).items;
+  const idByInternal = new Map<string, number>();
   for (const [id, internal] of Object.entries(itemIds)) {
     if (String(internal).toLowerCase() === q) return Number(id);
+    idByInternal.set(String(internal), Number(id));
+  }
+  // Official localized display names (魂之灵瓮, 闪烁匕首, ...) — previously unmatchable.
+  for (const entry of Object.values(localItems)) {
+    if (entry.name && entry.name.toLowerCase() === q) {
+      const id = idByInternal.get(entry.internal);
+      if (id != null) return id;
+    }
+  }
+  // Community nicknames (大骨灰, 跳刀, bkb, ...).
+  const aliasInternal = lookupItemAlias(q);
+  if (aliasInternal) {
+    const id = idByInternal.get(aliasInternal);
+    if (id != null) return id;
   }
   const dnameMatches = Object.entries(itemIds).filter(
     ([, internal]) => String(items[String(internal)]?.dname ?? "").toLowerCase() === q,
@@ -288,7 +306,7 @@ export const scenarioTools: ToolDef[] = [
       item: z
         .union([z.number().int(), z.string()])
         .optional()
-        .describe("Item id, internal name ('spirit_vessel') or English display name ('Spirit Vessel'). Omit to list common final-build items."),
+        .describe("Item id, internal name ('spirit_vessel'), display name ('Spirit Vessel'/'魂之灵瓮') or community nickname ('大骨灰', 'bkb'). Omit to list common final-build items."),
       days: z.number().int().min(30).max(720).optional().describe("Lookback window in days (default 180)."),
       min_games: z.number().int().min(1).optional().describe("Min games per row when listing items (default 20)."),
       limit: z.number().int().min(3).max(20).optional().describe("Max item rows when listing (default 10)."),
@@ -303,9 +321,12 @@ export const scenarioTools: ToolDef[] = [
       const timeFilter = `m.start_time > extract(epoch from now()) - ${days * 86400}`;
 
       if (args.item != null) {
-        const itemId = await resolveItemIdInput(args.item);
+        const itemId = await resolveItemIdInput(args.item, lang);
         if (itemId == null) {
-          return { error: `Unknown item: ${args.item}`, hint: "Resolve item names with search_dota_entities, or pass the numeric item id." };
+          return {
+            error: `Unknown item: ${args.item}`,
+            hint: "Resolve item names with search_dota_entities, or pass the numeric item id or internal name (it also knows community nicknames like 大骨灰/跳刀/bkb).",
+          };
         }
         const q = (withItem: boolean) =>
           `SELECT count(*) AS games, sum(${winsExpr}) AS wins FROM player_matches a ` +

@@ -8,6 +8,7 @@ import { sampleFields } from "../stats.js";
 import { stratzQuery, StratzApiError } from "../stratz.js";
 import { effectiveLanguage, languageParam, type ToolDef } from "./registry.js";
 import { resolveHero, stripPlaceholders } from "./reference.js";
+import { heroLookupError } from "../aliases.js";
 
 /**
  * STRATZ-powered hero aggregates (https://stratz.com — free API, requires
@@ -95,7 +96,7 @@ interface StatRow {
 async function resolveHeroId(input: number | string, lang: string): Promise<number | { error: string; hint: string }> {
   const id = await resolveHero(input, lang);
   if (id == null) {
-    return { error: `Unknown hero: ${input}`, hint: "Resolve names to ids with search_dota_entities first." };
+    return heroLookupError(input, lang);
   }
   return id;
 }
