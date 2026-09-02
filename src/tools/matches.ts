@@ -20,8 +20,9 @@ export const matchTools: ToolDef[] = [
     name: "get_match",
     description:
       "Get a Dota 2 match by id as a compact, human-readable view: heroes/items/abilities resolved to names, " +
-      "game mode/lobby/skill/region as labels, per-player KDA/GPM/XPM/items, and optional pick-ban draft. " +
-      "Works with parsed matches too ( richer item/ability data when available).",
+      "game mode/lobby/skill/region as labels, per-player position 1-5 estimate (from lane + farm order), " +
+      "KDA/GPM/XPM/items, and optional pick-ban draft. Works with parsed matches too ( richer item/ability " +
+      "data when available).",
     schema: {
       match_id: z.number().int().positive().describe("Match id (from pro matches, player history, or a Dota 2 share URL)."),
       language: languageParam,

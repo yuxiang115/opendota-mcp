@@ -22,7 +22,7 @@ import {
   getRegions,
 } from "./constants.js";
 
-const PACKAGE_VERSION = "0.2.1";
+const PACKAGE_VERSION = "0.3.0";
 
 const allTools: ToolDef[] = [
   ...systemTools,

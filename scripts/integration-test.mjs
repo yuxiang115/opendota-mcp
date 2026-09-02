@@ -253,6 +253,54 @@ console.log("\n■ Regression H — constants stale-while-revalidate (1h TTL by 
 }
 
 // ─────────────────────────────────────────────────────────────
+console.log("\n■ Regression I — position 1-5 estimation and log enrichment (mock match)");
+{
+  const mk = (slot, heroId, lane, lane_role, gpm, extra = {}) => ({
+    player_slot: slot, account_id: 1000 + slot, personaname: `p${slot}`, hero_id: heroId,
+    lane, lane_role, gold_per_min: gpm, kills: 1, deaths: 1, assists: 1, level: 20,
+    radiant_win: true, duration: 1500, start_time: 1700000000, game_mode: 22, lobby_type: 7,
+    item_0: 1, kills_log: [{ time: 300, key: "npc_dota_hero_medusa" }], purchase_log: [{ time: 240, key: "bfury" }],
+    ...extra,
+  });
+  const match = {
+    match_id: 424242, radiant_win: true, radiant_score: 30, dire_score: 25, duration: 1500,
+    start_time: 1700000000, game_mode: 22, lobby_type: 7, players: [
+      // Radiant: dual safe, mid, dual off — mirrors real 2-1-2 turbo lanes
+      mk(0, 1, 1, 1, 1533),   // safe primary → pos1
+      mk(1, 2, 2, 2, 1428),   // mid → pos2
+      mk(2, 3, 3, 3, 930),    // off primary → pos3
+      mk(3, 4, 1, 1, 923),    // safe secondary → pos4/5 by farm
+      mk(4, 5, 3, 3, 868),    // off secondary → pos5
+      // Dire
+      mk(128, 6, 1, 3, 1054), // dire off primary → pos3
+      mk(129, 7, 2, 2, 1079), // mid → pos2
+      mk(130, 8, 1, 3, 879),  // dire off secondary → pos4
+      mk(131, 9, 3, 1, 1080), // dire safe primary → pos1
+      mk(132, 10, 3, 1, 523), // dire safe secondary → pos5
+    ],
+  };
+  const mock = (await import("node:http")).createServer((req, res) => {
+    const path = req.url.replace(/^\/api/, "").split("?")[0];
+    res.setHeader("content-type", "application/json");
+    if (path === "/matches/424242") res.end(JSON.stringify(match));
+    else if (path === "/constants/items") res.end(JSON.stringify({ bfury: { cost: 4100, dname: "Battle Fury" } }));
+    else res.end("{}");
+  });
+  await new Promise((r) => mock.listen(0, "127.0.0.1", r));
+  const port = mock.address().port;
+  const mc = await boot({ OPENDOTA_BASE_URL: `http://127.0.0.1:${port}/api`, OPENDOTA_LANGUAGE: "schinese" });
+  const m = await call(mc, "get_match", { match_id: 424242, include: { player_logs: true } });
+  const byName = (slot) => m.players.find((p) => p.player_slot === slot);
+  ok("radiant positions 1-5 assigned by lane + farm", [0, 1, 2, 3, 4].map((s) => byName(s).position).join("") === "12345");
+  ok("dire positions 1-5 assigned (safe primary pos1, off primary pos3)", [131, 129, 128, 130, 132].map((s) => byName(s).position).join("") === "12345");
+  ok("lane labels are side-aware", byName(128).lane === "bottom (off side)" && byName(131).lane === "top (safe side)", `${byName(128).lane} / ${byName(131).lane}`);
+  ok("purchase_log entries carry item name and cost", byName(0).purchase_log?.[0]?.item === "狂战斧" && byName(0).purchase_log?.[0]?.cost === 4100, JSON.stringify(byName(0).purchase_log?.[0]));
+  ok("kills_log victims resolved to hero names", byName(0).kills_log?.[0]?.victim?.name === "美杜莎", JSON.stringify(byName(0).kills_log?.[0]));
+  await mc.close();
+  mock.close();
+}
+
+// ─────────────────────────────────────────────────────────────
 console.log(`\n═══ 结果: ${passed} passed, ${failed} failed ═══`);
 if (failures.length) {
   console.log("Failures:");

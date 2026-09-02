@@ -26,15 +26,15 @@ function ensureItemInternalIndex(): void {
   const english = getLocaleBundle("english").items;
   for (const [id, entry] of Object.entries(english)) {
     itemInternalIndex.set(entry.internal, Number(id));
-    const withPrefix = entry.internal.startsWith("item_") ? entry.internal : `item_${entry.internal}`;
-    itemInternalIndex.set(withPrefix, Number(id));
+    // Index both prefixed ("item_blink") and short ("blink") forms — purchase logs use the short form.
+    itemInternalIndex.set(entry.internal.replace(/^item_/, ""), Number(id));
   }
 }
 
 /** Resolve an item referenced by internal name (used by /heroes/{id}/itemPopularity). */
 export async function itemInternalRef(internal: string, lang: SupportedLanguage): Promise<NameRef | undefined> {
   ensureItemInternalIndex();
-  const id = itemInternalIndex.get(internal);
+  const id = itemInternalIndex.get(internal) ?? itemInternalIndex.get(internal.replace(/^item_/, ""));
   if (id != null) return itemRef(id, lang);
   try {
     const dname = (await getItems())[internal]?.dname;
@@ -43,6 +43,91 @@ export async function itemInternalRef(internal: string, lang: SupportedLanguage)
     /* ignore */
   }
   return { name: internal, name_en: internal };
+}
+
+/** Item gold cost by internal key (short or prefixed form). */
+async function itemCostByKey(key: string): Promise<number | undefined> {
+  try {
+    const items = await getItems();
+    return items[key]?.cost ?? items[key.replace(/^item_/, "")]?.cost;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Reverse index: hero internal name ("npc_dota_hero_medusa") -> numeric id (kills_log victims). */
+const heroInternalIndex = new Map<string, number>();
+
+async function heroInternalRef(internal: string, lang: SupportedLanguage): Promise<NameRef> {
+  if (heroInternalIndex.size === 0) {
+    for (const [id, entry] of Object.entries(getLocaleBundle("english").heroes)) {
+      heroInternalIndex.set(entry.internal, Number(id));
+    }
+  }
+  const id = heroInternalIndex.get(internal);
+  if (id != null) return (await heroRef(id, lang)) ?? { name: internal, name_en: internal };
+  return { name: internal, name_en: internal };
+}
+
+/**
+ * Absolute lane ids: 1=bottom, 2=middle, 3=top. Safe/off depends on the side
+ * (Radiant safe lane is bottom, Dire's is top).
+ */
+function laneLabel(lane: number | undefined, isRadiant: boolean | undefined): string | undefined {
+  if (lane == null) return undefined;
+  if (lane === 2) return "middle";
+  if (lane === 1) return isRadiant ? "bottom (safe side)" : "bottom (off side)";
+  if (lane === 3) return isRadiant ? "top (off side)" : "top (safe side)";
+  return `lane ${lane}`;
+}
+
+/**
+ * Estimate Dota positions 1-5 per team from lane_role (1 safe / 2 mid / 3 off /
+ * 4 jungle) plus within-lane farm order: the highest-farming player of each lane
+ * group takes that lane's primary position (1/2/3), the rest fill 4/5 by farm.
+ * Parsed matches sometimes carry role ("Core"/"Support"); when present it
+ * reserves Support players for the 4/5 pool.
+ */
+function assignPositions(rawPlayers: Record<string, any>[]): (number | undefined)[] {
+  const out: (number | undefined)[] = rawPlayers.map(() => undefined);
+  for (const radiant of [true, false]) {
+    const team = rawPlayers
+      .map((p, i) => ({ p, i }))
+      .filter(({ p }) => sideFromPlayerSlot(p.player_slot ?? (radiant ? 0 : 128)) === (radiant ? "radiant" : "dire"));
+    if (team.length === 0) continue;
+    const farm = (x: { p: Record<string, any> }) => x.p.gold_per_min ?? x.p.net_worth ?? 0;
+    const usedPos = new Set<number>();
+    const unassigned = new Set(team.map((t) => t.i));
+    const supports = new Set(
+      team.filter(({ p }) => typeof p.role === "string" && /support/i.test(p.role)).map(({ i }) => i),
+    );
+
+    const mid = team.find(({ p }) => p.lane_role === 2);
+    if (mid) {
+      out[mid.i] = 2;
+      usedPos.add(2);
+      unassigned.delete(mid.i);
+    }
+    for (const lr of [1, 3]) {
+      const group = team.filter(({ p, i }) => unassigned.has(i) && p.lane_role === lr && !supports.has(i));
+      const fallback = group.length ? group : team.filter(({ p, i }) => unassigned.has(i) && p.lane_role === lr);
+      if (fallback.length > 0 && !usedPos.has(lr)) {
+        fallback.sort((a, b) => farm(b) - farm(a));
+        out[fallback[0].i] = lr;
+        usedPos.add(lr);
+        unassigned.delete(fallback[0].i);
+      }
+    }
+    const rest = team.filter(({ i }) => unassigned.has(i)).sort((a, b) => farm(b) - farm(a));
+    const free = [1, 2, 3, 4, 5].filter((n) => !usedPos.has(n));
+    rest.forEach((t, k) => {
+      if (k < free.length) {
+        out[t.i] = free[k];
+        usedPos.add(free[k]);
+      }
+    });
+  }
+  return out;
 }
 
 async function mapValuesToRefs(
@@ -127,9 +212,11 @@ async function enrichMatchPlayer(p: RawPlayer, lang: SupportedLanguage, includeL
     hero_damage: p.hero_damage,
     hero_healing: p.hero_healing,
     tower_damage: p.tower_damage,
-    lane: p.lane,
+    lane: laneLabel(p.lane as number, isRadiant),
     lane_role: laneRoleLabel(p.lane_role as number),
+    role: p.role,
     is_roaming: p.is_roaming ?? undefined,
+    lane_efficiency_pct: p.lane_efficiency_pct,
     items,
     backpack,
     neutral_item: neutral,
@@ -144,10 +231,27 @@ async function enrichMatchPlayer(p: RawPlayer, lang: SupportedLanguage, includeL
     out.benchmarks = p.benchmarks;
   }
   if (includeLogs) {
-    out.purchase_log = p.purchase_log;
-    out.kills_log = p.kills_log;
-    out.obs_log = p.obs_log;
-    out.sen_log = p.sen_log;
+    out.purchase_log = await Promise.all(
+      ((p.purchase_log ?? []) as { time: number; key: string }[]).map(async (e) => ({
+        time: formatDuration(e.time),
+        item: (await itemInternalRef(e.key, lang))?.name,
+        cost: await itemCostByKey(e.key),
+      })),
+    );
+    out.kills_log = await Promise.all(
+      ((p.kills_log ?? []) as { time: number; key: string }[]).map(async (e) => ({
+        time: formatDuration(e.time),
+        victim: await heroInternalRef(e.key, lang),
+      })),
+    );
+    const trimWardLog = (log: unknown) =>
+      ((log ?? []) as { time?: number; x?: number; y?: number }[]).map((e) => ({
+        time: formatDuration(e.time),
+        x: e.x,
+        y: e.y,
+      }));
+    out.obs_log = trimWardLog(p.obs_log);
+    out.sen_log = trimWardLog(p.sen_log);
     out.runes = p.runes;
     out.item_uses = p.item_uses;
     out.ability_uses = p.ability_uses;
@@ -183,6 +287,11 @@ export async function enrichMatch(
   const players = Array.isArray(match.players)
     ? await Promise.all(match.players.map((p: RawPlayer) => enrichMatchPlayer(p, lang, includePlayerLogs, includeBenchmarks)))
     : [];
+  // Positions are a team-level property (farm order within lane groups), so attach after the per-player pass.
+  const positions = assignPositions(Array.isArray(match.players) ? (match.players as Record<string, any>[]) : []);
+  players.forEach((pl, i) => {
+    if (positions[i] != null) pl.position = positions[i];
+  });
 
   const out: Record<string, unknown> = {
     match_id: match.match_id,
