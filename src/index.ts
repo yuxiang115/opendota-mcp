@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// `opendota-mcp install-skill [claude-code|zcode|openclaw|all]` copies the shipped
-// Agent Skill into host skill directories, then exits. Everything else starts the MCP server.
+// `opendota-mcp install-skill [claude-code|zcode|openclaw|all] [--force]` copies the
+// shipped Agent Skill into host skill directories, then exits. Everything else starts the MCP server.
 if (process.argv[2] === "install-skill") {
   const { installSkill } = await import("./install-skill.js");
   installSkill(process.argv.slice(3));

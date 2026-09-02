@@ -65,18 +65,25 @@ export function installSkill(requested: string[] = []): void {
     console.error("Install the package properly (npm i -g opendota-mcp) or clone the repo.");
     process.exit(1);
   }
+  const force = requested.includes("--force") || requested.includes("-f");
   const wantAll = requested.includes("all");
-  const explicit = requested.filter((r) => r !== "all");
+  const explicit = requested.filter((r) => r !== "all" && r !== "--force" && r !== "-f");
   let installed = 0;
   for (const t of TARGETS) {
     const isSelected = explicit.includes(t.id);
     if (!wantAll && !isSelected && !t.detect()) continue;
     try {
       if (t.dir) {
+        // File-copy targets always overwrite (npm users re-run to update).
         mkdirSync(t.dir, { recursive: true });
         copyFileSync(SKILL_SRC, path.join(t.dir, "SKILL.md"));
       } else if (t.id === "openclaw") {
-        execFileSync("openclaw", ["skills", "install", path.dirname(SKILL_SRC)], { stdio: "inherit" });
+        // openclaw skips existing skills unless forced, so upgrades need the flag.
+        execFileSync(
+          "openclaw",
+          ["skills", "install", path.dirname(SKILL_SRC), ...(force ? ["--force"] : [])],
+          { stdio: "inherit" },
+        );
       }
       console.log(`ok  ${t.label}`);
       installed++;

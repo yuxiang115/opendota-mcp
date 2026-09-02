@@ -103,6 +103,7 @@ claude mcp add opendota -- npx opendota-mcp
 npx opendota-mcp install-skill          # 自动探测已装的宿主
 npx opendota-mcp install-skill all      # 全部宿主
 npx opendota-mcp install-skill zcode    # 指定: claude-code | zcode | openclaw
+npx opendota-mcp install-skill openclaw --force   # 覆盖已装的 skill（升级用）
 ```
 
 | 宿主 | Skill 位置 |

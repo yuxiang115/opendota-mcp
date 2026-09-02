@@ -51,6 +51,7 @@ application**, not the MCP server, so after adding the server run:
 npx opendota-mcp install-skill          # auto-detects installed hosts
 npx opendota-mcp install-skill all      # force every supported host
 npx opendota-mcp install-skill zcode    # or pick: claude-code | zcode | openclaw
+npx opendota-mcp install-skill openclaw --force   # overwrite an existing skill (updates)
 ```
 
 Manual equivalent if you prefer:
