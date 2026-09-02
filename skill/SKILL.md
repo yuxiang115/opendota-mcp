@@ -34,6 +34,11 @@ get_match(match_id, include={picks_bans, graphs})
 ### 版本环境
 `get_hero_stats`（分段胜率+pro ban/pick）→ `get_pro_matches` → `get_live_matches`
 
+## 分段（rank bracket）数据边界
+
+**有分段的**：`get_hero_stats`（Herald→Immortal 8 档 + pro + turbo 胜率）、`get_hero_benchmarks`（bracket 1-8）、`get_public_matches`（min/max_rank）。
+**无分段的**（数据源限制，工具描述已注明）：matchups / itemPopularity / itemTimings / laneRoleStats / skill_builds / synergy / durations 都是**全分段混合**——不要对用户声称"某分段的克制/出装数据"，只能说"全分段总体"；分段差异只能引用 get_hero_stats 的分段胜率。
+
 ## 数据解读要点
 
 - `position_basis`: `position_est`（官方）> `official_algorithm` > `lane_farm_heuristic` > `farm_order_only`（仅经济序猜测，低置信）

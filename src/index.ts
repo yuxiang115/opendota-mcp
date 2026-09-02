@@ -32,7 +32,7 @@ import { apiGet, readBundleManifest, seedConstantsFromBundle, updateBundleManife
 import { LOG_TARGET, logBoot, logToolCall, newTraceId, traceStorage } from "./telemetry.js";
 import { registerPrompts } from "./prompts.js";
 
-const PACKAGE_VERSION = "0.9.1";
+const PACKAGE_VERSION = "0.9.2";
 
 const allTools: ToolDef[] = [
   ...systemTools,

@@ -63,7 +63,9 @@ export const heroTools: ToolDef[] = [
     name: "get_hero_matchups",
     description:
       "How a hero performs against every other hero (games played and win rate from public matches). " +
-      "The classic 'counters' lookup — low win_rate vs a hero means that hero counters this one.",
+      "The classic 'counters' lookup — low win_rate vs a hero means that hero counters this one. " +
+      "NOTE: aggregated across ALL rank brackets (source has no bracket filter); bracket-specific " +
+      "counter meta is not available — use get_hero_stats for bracket-specific strength.",
     schema: {
       hero_id: heroIdParam,
       language: languageParam,
@@ -114,7 +116,7 @@ export const heroTools: ToolDef[] = [
     name: "get_hero_item_popularity",
     description:
       "Item popularity for a hero by game phase (start_game_items, early_game_items, mid_game_items, " +
-      "late_game_items), with item names resolved.",
+      "late_game_items), with item names resolved. Aggregated across ALL rank brackets (no bracket filter).",
     schema: {
       hero_id: heroIdParam,
       language: languageParam,
@@ -131,7 +133,7 @@ export const heroTools: ToolDef[] = [
     name: "get_hero_duration_performance",
     description:
       "A hero's win rate binned by match duration bucket (in 5-minute bins: '0-5', '5-10', ...). " +
-      "Shows hero power curve across game length.",
+      "Shows hero power curve across game length. Aggregated across ALL rank brackets (no bracket filter).",
     schema: {
       hero_id: heroIdParam,
     },

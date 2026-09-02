@@ -20,7 +20,8 @@ export const scenarioTools: ToolDef[] = [
     description:
       "Win rates by ITEM TIMING for a hero, from public scenario stats: e.g. 'PA with Battle Fury " +
       "before minute 8 wins 63% (27 games)'. Use this to answer when a hero should have which item, " +
-      "and whether a given timing was early/late. Small-sample rows (under min_games) are dropped.",
+      "and whether a given timing was early/late. Small-sample rows (under min_games) are dropped. " +
+      "Aggregated across ALL rank brackets (the scenario source no longer accepts rank filters).",
     schema: {
       hero_id: heroIdParam,
       min_games: z.number().int().min(1).optional().describe("Min sample size per row (default 10)."),
@@ -62,7 +63,8 @@ export const scenarioTools: ToolDef[] = [
     description:
       "Win rate of a hero per LANE ROLE and GAME LENGTH bucket from public scenario stats — shows " +
       "which lane the hero performs in and whether it wants short or long games (e.g. 'PA in safe " +
-      "lane under 15 min: 32% — she loses fast games'). Complements get_hero_matchups (hero-vs-hero).",
+      "lane under 15 min: 32% — she loses fast games'). Complements get_hero_matchups (hero-vs-hero). " +
+      "Aggregated across ALL rank brackets.",
     schema: {
       hero_id: heroIdParam,
       min_games: z.number().int().min(1).optional().describe("Min sample size per row (default 5)."),
@@ -138,7 +140,7 @@ export const scenarioTools: ToolDef[] = [
       "Most popular SKILL BUILD orders (加点) for a hero over the last N days, aggregated by SQL " +
       "from parsed matches: the first levels' upgrade order with games and win rate, ability names " +
       "resolved. Use this instead of guessing skill orders from memory. Note the sample is parsed " +
-      "matches only — check the sample size before drawing conclusions.",
+      "matches only (no rank-bracket filter available) — check the sample size before drawing conclusions.",
     schema: {
       hero_id: heroIdParam,
       days: z.number().int().min(7).max(365).optional().describe("Lookback window in days (default 90)."),
@@ -188,8 +190,8 @@ export const scenarioTools: ToolDef[] = [
       "ALLY synergy for a hero: win rates of hero pairings on the SAME team ('PA + Earthshaker: " +
       "62% over 40 games'), aggregated by SQL from parsed public matches. Without ally_hero_id it " +
       "returns the best and worst common allies. This is the same-team counterpart of " +
-      "get_hero_matchups (enemies). Sample = parsed matches only — always check games before " +
-      "trusting a percentage.",
+      "get_hero_matchups (enemies). Sample = parsed matches only, no rank-bracket filter — " +
+      "always check games before trusting a percentage.",
     schema: {
       hero_id: heroIdParam,
       ally_hero_id: z.number().int().positive().optional().describe("Restrict to one ally hero."),
