@@ -1,0 +1,79 @@
+{"ts":"2026-09-02T03:02:03.260Z","event":"upstream","trace_id":"out-of-band","tool":"-","method":"GET","path":"/constants/patch","status":200,"duration_ms":133,"cache":"bypass"}
+{"ts":"2026-09-02T03:02:03.286Z","event":"boot","version":"0.6.1","seeded_resources":15,"api_max_patch":60,"bundled_max_patch":60,"stale_detected":false,"log_target":"/home/node/.openclaw/opendota-mcp/e2e-log.jsonl"}
+{"ts":"2026-09-02T03:02:10.403Z","event":"upstream","trace_id":"cfff64c0","tool":"get_player","method":"GET","path":"/players/48645517","status":200,"duration_ms":121,"cache":"miss"}
+{"ts":"2026-09-02T03:02:10.403Z","event":"tool_call","trace_id":"cfff64c0","tool":"get_player","duration_ms":121,"ok":true,"result_bytes":1262}
+{"ts":"2026-09-02T03:02:10.511Z","event":"upstream","trace_id":"651b09b0","tool":"get_player_recent_matches","method":"GET","path":"/players/48645517/recentMatches","status":200,"duration_ms":82,"cache":"miss"}
+{"ts":"2026-09-02T03:02:10.527Z","event":"tool_call","trace_id":"651b09b0","tool":"get_player_recent_matches","duration_ms":98,"ok":true,"result_bytes":11154}
+{"ts":"2026-09-02T03:03:00.449Z","event":"upstream","trace_id":"out-of-band","tool":"-","method":"GET","path":"/constants/patch","status":200,"duration_ms":135,"cache":"bypass"}
+{"ts":"2026-09-02T03:03:00.474Z","event":"boot","version":"0.6.1","seeded_resources":15,"api_max_patch":60,"bundled_max_patch":60,"stale_detected":false,"log_target":"/home/node/.openclaw/opendota-mcp/e2e-log.jsonl"}
+{"ts":"2026-09-02T03:03:14.712Z","event":"upstream","trace_id":"a9954183","tool":"get_player_heroes","method":"GET","path":"/players/48645517/heroes","status":200,"duration_ms":595,"cache":"miss"}
+{"ts":"2026-09-02T03:03:14.792Z","event":"tool_call","trace_id":"a9954183","tool":"get_player_heroes","duration_ms":676,"ok":true,"result_bytes":20937}
+{"ts":"2026-09-02T03:03:29.175Z","event":"upstream","trace_id":"out-of-band","tool":"-","method":"GET","path":"/constants/patch","status":200,"duration_ms":164,"cache":"bypass"}
+{"ts":"2026-09-02T03:03:29.206Z","event":"boot","version":"0.6.1","seeded_resources":15,"api_max_patch":60,"bundled_max_patch":60,"stale_detected":false,"log_target":"/home/node/.openclaw/opendota-mcp/e2e-log.jsonl"}
+{"ts":"2026-09-02T03:03:33.811Z","event":"upstream","trace_id":"7c737b7f","tool":"get_player_rating_history","method":"GET","path":"/players/48645517/ratings","status":200,"duration_ms":111,"cache":"miss"}
+{"ts":"2026-09-02T03:03:33.811Z","event":"tool_call","trace_id":"7c737b7f","tool":"get_player_rating_history","duration_ms":112,"ok":true,"result_bytes":2}
+{"ts":"2026-09-02T03:03:38.232Z","event":"upstream","trace_id":"76ac76fe","tool":"refresh_player","method":"POST","path":"/players/48645517/refresh","status":200,"duration_ms":173,"cache":"miss"}
+{"ts":"2026-09-02T03:03:38.233Z","event":"tool_call","trace_id":"76ac76fe","tool":"refresh_player","duration_ms":174,"ok":true,"result_bytes":2}
+{"ts":"2026-09-02T03:03:41.993Z","event":"tool_call","trace_id":"17844b22","tool":"get_player_rating_history","duration_ms":0,"ok":true,"result_bytes":2}
+{"ts":"2026-09-02T03:03:50.830Z","event":"upstream","trace_id":"14136975","tool":"get_player_matches","method":"GET","path":"/players/48645517/matches","status":200,"duration_ms":518,"cache":"miss"}
+{"ts":"2026-09-02T03:03:50.834Z","event":"tool_call","trace_id":"14136975","tool":"get_player_matches","duration_ms":522,"ok":true,"result_bytes":9027}
+{"ts":"2026-09-02T03:04:15.111Z","event":"upstream","trace_id":"out-of-band","tool":"-","method":"GET","path":"/constants/patch","status":200,"duration_ms":123,"cache":"bypass"}
+{"ts":"2026-09-02T03:04:15.134Z","event":"boot","version":"0.6.1","seeded_resources":15,"api_max_patch":60,"bundled_max_patch":60,"stale_detected":false,"log_target":"/home/node/.openclaw/opendota-mcp/e2e-log.jsonl"}
+{"ts":"2026-09-02T03:04:20.907Z","event":"upstream","trace_id":"57b82991","tool":"get_match","method":"GET","path":"/matches/8976950353","status":200,"duration_ms":410,"cache":"miss"}
+{"ts":"2026-09-02T03:04:21.143Z","event":"tool_call","trace_id":"57b82991","tool":"get_match","duration_ms":646,"ok":true,"result_bytes":51953}
+{"ts":"2026-09-02T03:05:06.088Z","event":"upstream","trace_id":"out-of-band","tool":"-","method":"GET","path":"/constants/patch","status":200,"duration_ms":138,"cache":"bypass"}
+{"ts":"2026-09-02T03:05:06.117Z","event":"boot","version":"0.6.1","seeded_resources":15,"api_max_patch":60,"bundled_max_patch":60,"stale_detected":false,"log_target":"/home/node/.openclaw/opendota-mcp/e2e-log.jsonl"}
+{"ts":"2026-09-02T03:05:36.467Z","event":"upstream","trace_id":"out-of-band","tool":"-","method":"GET","path":"/constants/patch","status":200,"duration_ms":131,"cache":"bypass"}
+{"ts":"2026-09-02T03:05:36.490Z","event":"boot","version":"0.6.1","seeded_resources":15,"api_max_patch":60,"bundled_max_patch":60,"stale_detected":false,"log_target":"/home/node/.openclaw/opendota-mcp/e2e-log.jsonl"}
+{"ts":"2026-09-02T03:06:16.273Z","event":"upstream","trace_id":"out-of-band","tool":"-","method":"GET","path":"/constants/patch","status":200,"duration_ms":127,"cache":"bypass"}
+{"ts":"2026-09-02T03:06:16.300Z","event":"boot","version":"0.6.1","seeded_resources":15,"api_max_patch":60,"bundled_max_patch":60,"stale_detected":false,"log_target":"/home/node/.openclaw/opendota-mcp/e2e-log.jsonl"}
+{"ts":"2026-09-02T03:06:20.527Z","event":"upstream","trace_id":"69b33a7f","tool":"get_hero_matchups","method":"GET","path":"/heroes/1/matchups","status":200,"duration_ms":221,"cache":"miss"}
+{"ts":"2026-09-02T03:06:20.543Z","event":"tool_call","trace_id":"69b33a7f","tool":"get_hero_matchups","duration_ms":237,"ok":true,"result_bytes":1524}
+{"ts":"2026-09-02T03:06:53.275Z","event":"upstream","trace_id":"out-of-band","tool":"-","method":"GET","path":"/constants/patch","status":200,"duration_ms":136,"cache":"bypass"}
+{"ts":"2026-09-02T03:06:53.303Z","event":"boot","version":"0.6.1","seeded_resources":15,"api_max_patch":60,"bundled_max_patch":60,"stale_detected":false,"log_target":"/home/node/.openclaw/opendota-mcp/e2e-log.jsonl"}
+{"ts":"2026-09-02T03:06:57.453Z","event":"upstream","trace_id":"1abec7ee","tool":"get_hero_stats","method":"GET","path":"/heroStats","status":200,"duration_ms":222,"cache":"refresh"}
+{"ts":"2026-09-02T03:06:57.522Z","event":"tool_call","trace_id":"1abec7ee","tool":"get_hero_stats","duration_ms":291,"ok":true,"result_bytes":198008}
+{"ts":"2026-09-02T03:07:34.608Z","event":"upstream","trace_id":"out-of-band","tool":"-","method":"GET","path":"/constants/patch","status":200,"duration_ms":128,"cache":"bypass"}
+{"ts":"2026-09-02T03:07:34.631Z","event":"boot","version":"0.6.1","seeded_resources":15,"api_max_patch":60,"bundled_max_patch":60,"stale_detected":false,"log_target":"/home/node/.openclaw/opendota-mcp/e2e-log.jsonl"}
+{"ts":"2026-09-02T03:07:39.428Z","event":"upstream","trace_id":"a2e9c40b","tool":"get_hero_item_popularity","method":"GET","path":"/heroes/88/itemPopularity","status":200,"duration_ms":173,"cache":"refresh"}
+{"ts":"2026-09-02T03:07:39.432Z","event":"tool_call","trace_id":"a2e9c40b","tool":"get_hero_item_popularity","duration_ms":177,"ok":true,"result_bytes":4927}
+{"ts":"2026-09-02T03:07:49.164Z","event":"tool_call","trace_id":"989a9380","tool":"get_constants","duration_ms":0,"ok":true,"result_bytes":344486}
+{"ts":"2026-09-02T03:08:43.819Z","event":"upstream","trace_id":"out-of-band","tool":"-","method":"GET","path":"/constants/patch","status":200,"duration_ms":155,"cache":"bypass"}
+{"ts":"2026-09-02T03:08:43.851Z","event":"boot","version":"0.6.1","seeded_resources":15,"api_max_patch":60,"bundled_max_patch":60,"stale_detected":false,"log_target":"/home/node/.openclaw/opendota-mcp/e2e-log.jsonl"}
+{"ts":"2026-09-02T03:09:17.037Z","event":"upstream","trace_id":"ba0323ef","tool":"search_players","method":"GET","path":"/search","duration_ms":30015,"error":"This operation was aborted"}
+{"ts":"2026-09-02T03:09:17.039Z","event":"tool_call","trace_id":"ba0323ef","tool":"search_players","duration_ms":30017,"ok":false,"error":"OpenDota request timed out for /search"}
+{"ts":"2026-09-02T03:09:51.372Z","event":"upstream","trace_id":"8851653c","tool":"search_players","method":"GET","path":"/search","duration_ms":30000,"error":"This operation was aborted"}
+{"ts":"2026-09-02T03:09:51.373Z","event":"tool_call","trace_id":"8851653c","tool":"search_players","duration_ms":30001,"ok":false,"error":"OpenDota request timed out for /search"}
+{"ts":"2026-09-02T03:09:57.086Z","event":"upstream","trace_id":"a348c227","tool":"get_player","method":"GET","path":"/players/111620761","duration_ms":162,"error":"OpenDota API error HTTP 404 for /players/111620761: {\"error\":\"Not Found\"}"}
+{"ts":"2026-09-02T03:09:57.088Z","event":"tool_call","trace_id":"a348c227","tool":"get_player","duration_ms":164,"ok":false,"error":"OpenDota API error HTTP 404 for /players/111620761: {\"error\":\"Not Found\"}"}
+{"ts":"2026-09-02T03:09:57.211Z","event":"upstream","trace_id":"4287b989","tool":"get_player_recent_matches","method":"GET","path":"/players/111620761/recentMatches","status":200,"duration_ms":84,"cache":"miss"}
+{"ts":"2026-09-02T03:09:57.213Z","event":"tool_call","trace_id":"4287b989","tool":"get_player_recent_matches","duration_ms":86,"ok":true,"result_bytes":2}
+{"ts":"2026-09-02T03:10:34.415Z","event":"upstream","trace_id":"63903532","tool":"search_players","method":"GET","path":"/search","duration_ms":30001,"error":"This operation was aborted"}
+{"ts":"2026-09-02T03:10:34.416Z","event":"tool_call","trace_id":"63903532","tool":"search_players","duration_ms":30002,"ok":false,"error":"OpenDota request timed out for /search"}
+{"ts":"2026-09-02T03:10:39.937Z","event":"upstream","trace_id":"87e00113","tool":"get_pro_players","method":"GET","path":"/proPlayers","status":200,"duration_ms":1231,"cache":"miss"}
+{"ts":"2026-09-02T03:10:39.953Z","event":"tool_call","trace_id":"87e00113","tool":"get_pro_players","duration_ms":1232,"ok":true,"result_bytes":4651424}
+{"ts":"2026-09-02T03:11:12.309Z","event":"upstream","trace_id":"abe2269e","tool":"search_players","method":"GET","path":"/search","status":200,"duration_ms":12185,"cache":"miss"}
+{"ts":"2026-09-02T03:11:12.309Z","event":"tool_call","trace_id":"abe2269e","tool":"search_players","duration_ms":12185,"ok":true,"result_bytes":9933}
+{"ts":"2026-09-02T03:11:29.932Z","event":"upstream","trace_id":"071526df","tool":"get_player","method":"GET","path":"/players/111620041","status":200,"duration_ms":126,"cache":"miss"}
+{"ts":"2026-09-02T03:11:29.934Z","event":"tool_call","trace_id":"071526df","tool":"get_player","duration_ms":128,"ok":true,"result_bytes":1187}
+{"ts":"2026-09-02T03:11:30.044Z","event":"upstream","trace_id":"4e126ab2","tool":"get_player_recent_matches","method":"GET","path":"/players/111620041/recentMatches","status":200,"duration_ms":72,"cache":"miss"}
+{"ts":"2026-09-02T03:11:30.082Z","event":"tool_call","trace_id":"4e126ab2","tool":"get_player_recent_matches","duration_ms":110,"ok":true,"result_bytes":11228}
+{"ts":"2026-09-02T03:11:53.232Z","event":"upstream","trace_id":"out-of-band","tool":"-","method":"GET","path":"/constants/patch","status":200,"duration_ms":155,"cache":"bypass"}
+{"ts":"2026-09-02T03:11:53.262Z","event":"boot","version":"0.6.1","seeded_resources":15,"api_max_patch":60,"bundled_max_patch":60,"stale_detected":false,"log_target":"/home/node/.openclaw/opendota-mcp/e2e-log.jsonl"}
+{"ts":"2026-09-02T03:11:58.142Z","event":"upstream","trace_id":"f64ac79e","tool":"get_pro_matches","method":"GET","path":"/proMatches","status":200,"duration_ms":132,"cache":"bypass"}
+{"ts":"2026-09-02T03:11:58.143Z","event":"tool_call","trace_id":"f64ac79e","tool":"get_pro_matches","duration_ms":133,"ok":true,"result_bytes":10398}
+{"ts":"2026-09-02T03:12:11.078Z","event":"upstream","trace_id":"c48e352c","tool":"get_match","method":"GET","path":"/matches/8976166971","status":200,"duration_ms":357,"cache":"miss"}
+{"ts":"2026-09-02T03:12:11.290Z","event":"tool_call","trace_id":"c48e352c","tool":"get_match","duration_ms":569,"ok":true,"result_bytes":37474}
+{"ts":"2026-09-02T03:12:11.543Z","event":"upstream","trace_id":"250d11c4","tool":"get_match","method":"GET","path":"/matches/8978292022","status":200,"duration_ms":231,"cache":"miss"}
+{"ts":"2026-09-02T03:12:11.718Z","event":"tool_call","trace_id":"250d11c4","tool":"get_match","duration_ms":406,"ok":true,"result_bytes":35284}
+{"ts":"2026-09-02T03:12:47.317Z","event":"upstream","trace_id":"out-of-band","tool":"-","method":"GET","path":"/constants/patch","status":200,"duration_ms":123,"cache":"bypass"}
+{"ts":"2026-09-02T03:12:47.345Z","event":"boot","version":"0.6.1","seeded_resources":15,"api_max_patch":60,"bundled_max_patch":60,"stale_detected":false,"log_target":"/home/node/.openclaw/opendota-mcp/e2e-log.jsonl"}
+{"ts":"2026-09-02T03:12:52.319Z","event":"upstream","trace_id":"d00e3d42","tool":"get_match","method":"GET","path":"/matches/99999999999","duration_ms":234,"error":"OpenDota API error HTTP 404 for /matches/99999999999: {\"error\":\"Not Found\"}"}
+{"ts":"2026-09-02T03:12:52.321Z","event":"tool_call","trace_id":"d00e3d42","tool":"get_match","duration_ms":236,"ok":false,"error":"OpenDota API error HTTP 404 for /matches/99999999999: {\"error\":\"Not Found\"}"}
+{"ts":"2026-09-02T03:13:07.094Z","event":"upstream","trace_id":"out-of-band","tool":"-","method":"GET","path":"/constants/patch","status":200,"duration_ms":133,"cache":"bypass"}
+{"ts":"2026-09-02T03:13:07.123Z","event":"boot","version":"0.6.1","seeded_resources":15,"api_max_patch":60,"bundled_max_patch":60,"stale_detected":false,"log_target":"/home/node/.openclaw/opendota-mcp/e2e-log.jsonl"}
+{"ts":"2026-09-02T03:13:11.710Z","event":"tool_call","trace_id":"3cd49e3d","tool":"search_dota_entities","duration_ms":11,"ok":true,"result_bytes":121}
+{"ts":"2026-09-02T03:13:26.939Z","event":"upstream","trace_id":"out-of-band","tool":"-","method":"GET","path":"/constants/patch","status":200,"duration_ms":144,"cache":"bypass"}
+{"ts":"2026-09-02T03:13:26.968Z","event":"boot","version":"0.6.1","seeded_resources":15,"api_max_patch":60,"bundled_max_patch":60,"stale_detected":false,"log_target":"/home/node/.openclaw/opendota-mcp/e2e-log.jsonl"}
+{"ts":"2026-09-02T03:13:31.309Z","event":"upstream","trace_id":"f9bdab04","tool":"get_live_matches","method":"GET","path":"/live","status":200,"duration_ms":124,"cache":"bypass"}
+{"ts":"2026-09-02T03:13:31.398Z","event":"tool_call","trace_id":"f9bdab04","tool":"get_live_matches","duration_ms":213,"ok":true,"result_bytes":21375}

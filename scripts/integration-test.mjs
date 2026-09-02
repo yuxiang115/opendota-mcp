@@ -84,8 +84,15 @@ console.log(`  → 全部对位: ${matchups.map((m) => `${m.hero.name} ${m.win_r
 // ─────────────────────────────────────────────────────────────
 console.log("\n■ Scenario B — agent flow: player deep-dive (SumaiL)");
 const found = await call(client, "search_players", { q: "SumaiL" });
-ok("player search returns account ids", found.some((p) => p.account_id));
-const accountId = found.find((p) => p.personaname === "SumaiL")?.account_id ?? found[0].account_id;
+// /search is a flaky OpenDota endpoint; the tool returns {error, hint} when it fails.
+if (Array.isArray(found)) {
+  ok("player search returns account ids", found.some((p) => p.account_id));
+} else {
+  ok("search failure returns a structured hint", typeof found.hint === "string" && /guess/i.test(found.hint), head(found));
+}
+const accountId = Array.isArray(found)
+  ? (found.find((p) => p.personaname === "SumaiL")?.account_id ?? found[0].account_id)
+  : 228003373; // known SumaiL account (SUMAyLLL) — keeps the deep-dive assertions meaningful
 
 const profile = await call(client, "get_player", { account_id: accountId });
 ok("profile rank medal readable", typeof profile.rank_tier === "string" || profile.rank_tier === undefined, head(profile.rank_tier));
@@ -493,6 +500,15 @@ console.log("\n■ Regression M — unparsed match shape (basic data, degraded p
 // ─────────────────────────────────────────────────────────────
 console.log("\n■ Regression N — bundle seed + patch probe + negative-lookup heal (request accounting)");
 {
+  // Probe throttling persists last_probe_at; clear before each boot so every scenario probes.
+  const clearProbe = async () => {
+    const { readFileSync, writeFileSync } = await import("node:fs");
+    const mp = "constants-bundle/manifest.json";
+    const m = JSON.parse(readFileSync(mp, "utf8"));
+    delete m.last_probe_at;
+    writeFileSync(mp, JSON.stringify(m, null, 2));
+  };
+  await clearProbe();
   const mkMatch = (heroId) => ({
     match_id: 474747, radiant_win: true, radiant_score: 5, dire_score: 5, duration: 1500,
     start_time: 1700000000, game_mode: 22, lobby_type: 7, region: 1, patch: 60,
@@ -521,6 +537,7 @@ console.log("\n■ Regression N — bundle seed + patch probe + negative-lookup 
 
   // Scenario 1: probe matches bundled patch id -> cold boot + full get_match = exactly 2 requests
   {
+    await clearProbe();
     const mc = await boot(base);
     await new Promise((r) => setTimeout(r, 500));
     hits.length = 0;
@@ -533,6 +550,7 @@ console.log("\n■ Regression N — bundle seed + patch probe + negative-lookup 
   // Scenario 2: probe sees a newer patch id -> all bundled constants refresh in background
   {
     patchResponse = [{ id: 99, name: "9.99" }];
+    await clearProbe();
     const mc = await boot(base);
     await new Promise((r) => setTimeout(r, 800));
     const refreshed = hits.filter((h) => h.startsWith("/constants/") && h !== "/constants/patch");
@@ -543,6 +561,7 @@ console.log("\n■ Regression N — bundle seed + patch probe + negative-lookup 
 
   // Scenario 3: unknown hero id -> negative-lookup heal refreshes heroes once
   {
+    await clearProbe();
     const mc = await boot(base);
     await new Promise((r) => setTimeout(r, 500));
     hits.length = 0;
@@ -560,8 +579,20 @@ console.log("\n■ Regression N — bundle seed + patch probe + negative-lookup 
 console.log("\n■ Regression O — self-updating bundle (network refresh persists back to constants-bundle/)");
 {
   const { readFileSync, writeFileSync, existsSync } = await import("node:fs");
+  {
+    const mp = "constants-bundle/manifest.json";
+    const m = JSON.parse(readFileSync(mp, "utf8"));
+    delete m.last_probe_at;
+    writeFileSync(mp, JSON.stringify(m, null, 2));
+  }
   const path = await import("node:path");
   let patchRespO = [{ id: 60, name: "7.41" }];
+  const clearProbeO = async () => {
+    const mp2 = "constants-bundle/manifest.json";
+    const m2 = JSON.parse(readFileSync(mp2, "utf8"));
+    delete m2.last_probe_at;
+    writeFileSync(mp2, JSON.stringify(m2, null, 2));
+  };
   const mockO = (await import("node:http")).createServer((req, res) => {
     const p = req.url.replace(/^\/api/, "").split("?")[0];
     res.setHeader("content-type", "application/json");
@@ -577,6 +608,7 @@ console.log("\n■ Regression O — self-updating bundle (network refresh persis
   const savedPatch = readFileSync(patchPath, "utf8");
   try {
     patchRespO = [{ id: 123, name: "9.99" }];
+    await clearProbeO();
     const mc = await boot({ OPENDOTA_BASE_URL: `http://127.0.0.1:${portO}/api`, OPENDOTA_BUNDLE_SEED: "1", OPENDOTA_BUNDLE_PERSIST: "1" });
     await new Promise((r) => setTimeout(r, 800));
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
@@ -596,6 +628,7 @@ console.log("\n■ Regression O — self-updating bundle (network refresh persis
   }
   // Boot once more (probe back to matching) to confirm the restored bundle still seeds cleanly.
   patchRespO = [{ id: 60, name: "7.41" }];
+  await clearProbeO();
   const mc2 = await boot({ OPENDOTA_BASE_URL: `http://127.0.0.1:${portO}/api`, OPENDOTA_BUNDLE_SEED: "1", OPENDOTA_BUNDLE_PERSIST: "0" });
   const m2 = await call(mc2, "get_constants", { resource: "heroes" });
   ok("bundle intact after restore", Object.keys(m2 ?? {}).length > 100);

@@ -817,30 +817,53 @@ export async function enrichItemPopularity(
   return out;
 }
 
-/** Enrich heroStats rows: attach hero refs and readable pick/win rates. */
-export async function enrichHeroStatRow(row: Record<string, any>, lang: SupportedLanguage): Promise<Record<string, unknown>> {
+/** Compact heroStats row: keeps computed win rates, drops the raw per-bracket pick/win counters. */
+export async function enrichHeroStatRow(
+  row: Record<string, any>,
+  lang: SupportedLanguage,
+  raw = false,
+): Promise<Record<string, unknown>> {
   const hero = await heroRef(row.hero_id ?? row.id, lang);
-  const out: Record<string, unknown> = { ...row, hero };
-  delete out.hero_id;
-  delete out.id;
-  const compute = (pickKey: string, winKey: string, label: string) => {
-    const picks = row[pickKey] as number | undefined;
-    const wins = row[winKey] as number | undefined;
-    if (picks != null && wins != null && picks > 0) {
-      out[label] = Math.round((wins / picks) * 1000) / 10;
-    }
-  };
-  compute("pro_pick", "pro_win", "pro_win_rate_pct");
-  compute("1_pick", "1_win", "herald_win_rate_pct");
-  compute("2_pick", "2_win", "guardian_win_rate_pct");
-  compute("3_pick", "3_win", "crusader_win_rate_pct");
-  compute("4_pick", "4_win", "archon_win_rate_pct");
-  compute("5_pick", "5_win", "legend_win_rate_pct");
-  compute("6_pick", "6_win", "ancient_win_rate_pct");
-  compute("7_pick", "7_win", "divine_win_rate_pct");
-  compute("8_pick", "8_win", "immortal_win_rate_pct");
-  compute("turbo_pick", "turbo_win", "turbo_win_rate_pct");
+  const out: Record<string, unknown> = raw
+    ? { ...row, hero }
+    : {
+        hero,
+        turbo_pick: row.turbo_pick,
+        pro_pick: row.pro_pick,
+        pro_ban: row.pro_ban,
+        pro_win_rate_pct: row.pro_pick > 0 ? Math.round((row.pro_win / row.pro_pick) * 1000) / 10 : undefined,
+        turbo_win_rate_pct: row.turbo_pick > 0 ? Math.round((row.turbo_win / row.turbo_pick) * 1000) / 10 : undefined,
+        herald_win_rate_pct: winRate(row, 1),
+        guardian_win_rate_pct: winRate(row, 2),
+        crusader_win_rate_pct: winRate(row, 3),
+        archon_win_rate_pct: winRate(row, 4),
+        legend_win_rate_pct: winRate(row, 5),
+        ancient_win_rate_pct: winRate(row, 6),
+        divine_win_rate_pct: winRate(row, 7),
+        immortal_win_rate_pct: winRate(row, 8),
+        overall_pick: sumPicks(row),
+      };
+  if (raw) {
+    delete out.hero_id;
+    delete out.id;
+    // Keep the computed rates alongside raw counters when explicitly requested.
+    out.pro_win_rate_pct = row.pro_pick > 0 ? Math.round((row.pro_win / row.pro_pick) * 1000) / 10 : undefined;
+    out.immortal_win_rate_pct = winRate(row, 8);
+  }
+  for (const k of Object.keys(out)) {
+    if (out[k] === undefined || out[k] === null) delete out[k];
+  }
   return out;
+}
+
+function winRate(row: Record<string, any>, bracket: number): number | undefined {
+  const picks = row[`${bracket}_pick`];
+  const wins = row[`${bracket}_win`];
+  return picks > 0 ? Math.round((wins / picks) * 1000) / 10 : undefined;
+}
+
+function sumPicks(row: Record<string, any>): number {
+  return [1, 2, 3, 4, 5, 6, 7, 8].reduce((s, b) => s + (row[`${b}_pick`] ?? 0), 0);
 }
 
 /** Enrich hero matchup rows (hero_id, games_played, wins). */

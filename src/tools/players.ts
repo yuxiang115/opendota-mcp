@@ -26,12 +26,24 @@ export const playerTools: ToolDef[] = [
     name: "search_players",
     description:
       "Search Dota 2 players by display name (personaname). Returns account ids usable with the player tools. " +
-      "For a Steam profile URL, the account id is the trailing number.",
+      "For a Steam profile URL, the account id is the trailing number. If the search service is unavailable, " +
+      "ask the user for their OpenDota/DotaBuff profile link or Steam64 id instead of guessing account ids.",
     schema: {
       q: z.string().min(1).describe("Name fragment to search for."),
     },
     handler: async (args) => {
-      return apiGet("/search", { query: { q: args.q }, ttl: "listing" });
+      try {
+        return await apiGet("/search", { query: { q: args.q }, ttl: "listing", timeoutMs: 12_000 });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return {
+          error: message,
+          hint:
+            "Player search failed. Do NOT guess account ids. Ask the user for an OpenDota/DotaBuff profile URL " +
+            "(the number in /players/<id> is the account id) or their Steam64 id (subtract 76561197960265728 " +
+            "to get the account id), then retry with get_player.",
+        };
+      }
     },
   },
   {

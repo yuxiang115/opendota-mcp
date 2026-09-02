@@ -43,15 +43,20 @@ export const heroTools: ToolDef[] = [
   {
     name: "get_hero_stats",
     description:
-      "Full hero statistics: pick/ban counts and win rates across pro play, public skill brackets " +
-      "(Herald through Immortal) and turbo, with hero names resolved. Use for meta/tier questions.",
+      "Hero pick/ban counts and win rates across brackets (Herald→Immortal, pro, turbo) in a COMPACT form: " +
+      "per-bracket win-rate percentages plus pro/turbo pick counts, sorted by overall picks descending. " +
+      "Set raw=true for the full counters (much larger). Pass top to limit rows (default all 127).",
     schema: {
       language: languageParam,
+      top: z.number().int().min(1).max(130).optional().describe("Max heroes to return (default all)."),
+      raw: z.boolean().optional().describe("Include raw per-bracket pick/win counters (large)."),
     },
     handler: async (args, ctx) => {
       const rows = await apiGet<Record<string, any>[]>("/heroStats", { ttl: "constants" });
       const lang = effectiveLanguage(args.language, ctx);
-      return Promise.all(rows.map((row) => enrichHeroStatRow(row, lang)));
+      const enriched = await Promise.all(rows.map((row) => enrichHeroStatRow(row, lang, args.raw === true)));
+      const sorted = enriched.sort((a, b) => (b.overall_pick as number ?? 0) - (a.overall_pick as number ?? 0));
+      return args.top ? sorted.slice(0, args.top) : sorted;
     },
   },
   {

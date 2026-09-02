@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { apiGet } from "../client.js";
-import { enrichPlayerMatchRow, formatDuration, heroRef, rankTierToLabel } from "../mapping.js";
+import { enrichPlayerMatchRow, formatDuration, formatTimestamp, heroRef, rankTierToLabel } from "../mapping.js";
 import { effectiveLanguage, languageParam, type ToolDef } from "./registry.js";
 
 export const proTools: ToolDef[] = [
@@ -31,10 +31,31 @@ export const proTools: ToolDef[] = [
   },
   {
     name: "get_pro_players",
-    description: "List of professional players with their teams, countries and Steam ids.",
-    schema: {},
-    handler: async () => {
-      return apiGet("/proPlayers", { ttl: "listing" });
+    description:
+      "List professional players (name, team, country, account id), most recently active first, " +
+      "capped at the limit (default 100 of ~2500) to keep responses small. Raise limit if needed.",
+    schema: {
+      limit: z.number().int().min(1).max(2000).optional().describe("Max players to return (default 100)."),
+    },
+    handler: async (args) => {
+      const rows = await apiGet<Record<string, any>[]>("/proPlayers", { ttl: "listing" });
+      const cap = args.limit ?? 100;
+      // The API mixes Unix-seconds numbers and ISO date strings in last_match_time.
+      const timeValue = (p: Record<string, any>) =>
+        typeof p.last_match_time === "number" ? p.last_match_time : Date.parse(p.last_match_time ?? "") || 0;
+      const sorted = [...rows].sort((a, b) => timeValue(b) - timeValue(a));
+      const limited = sorted.slice(0, cap).map((p) => ({
+        account_id: p.account_id,
+        name: p.name,
+        steam_login: p.personaname,
+        team_tag: p.team_tag,
+        team_name: p.team_name,
+        country_code: p.country_code,
+        fantasy_role: p.fantasy_role,
+        last_match_time:
+          typeof p.last_match_time === "number" ? formatTimestamp(p.last_match_time) : p.last_match_time,
+      }));
+      return { total_available: rows.length, returned: limited.length, players: limited };
     },
   },
   {

@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CACHE_TTL, OPENDEOTA_API_KEY, OPENDOTA_BASE_URL, RATE_LIMIT_PER_MINUTE, shouldSeedBundle } from "./config.js";
+import { currentTrace, logUpstream } from "./telemetry.js";
 
 interface CacheEntry {
   /** Disk format version: old entries with a different TTL policy are ignored. */
@@ -35,6 +36,9 @@ export interface BundleManifest {
   bundled_at?: string;
   max_patch_id?: number;
   resources?: string[];
+  /** When the boot patch-probe last ran (ISO); restarts within an hour skip re-probing. */
+  last_probe_at?: string;
+  last_probe_max_patch?: number;
 }
 
 export function readBundleManifest(): BundleManifest | undefined {
@@ -44,6 +48,16 @@ export function readBundleManifest(): BundleManifest | undefined {
     return JSON.parse(readFileSync(file, "utf8")) as BundleManifest;
   } catch {
     return undefined;
+  }
+}
+
+/** Best-effort manifest field update (used to throttle the boot probe across restarts). */
+export function updateBundleManifest(fields: Partial<BundleManifest>): void {
+  try {
+    const manifest = readBundleManifest() ?? { resources: [] };
+    writeFileSync(path.join(BUNDLE_DIR, "manifest.json"), JSON.stringify({ ...manifest, ...fields }, null, 2), "utf8");
+  } catch {
+    /* read-only install — fine */
   }
 }
 
@@ -225,6 +239,8 @@ export interface RequestOptions {
   ttl?: keyof typeof CACHE_TTL;
   /** Extra rate cost (e.g. POST /request/{match_id} counts as 10 calls). */
   rateCost?: number;
+  /** Per-request timeout override in ms (default 30s; search gets a shorter one). */
+  timeoutMs?: number;
   /** Return the parsed body even on non-2xx status (e.g. /health reports status via HTTP 500). */
   allowErrorStatus?: boolean;
   /** Internal: bypass cache reads (used by the stale-while-revalidate background refresh). */
@@ -283,13 +299,15 @@ export async function apiGet<T>(path: string, options: RequestOptions = {}): Pro
   }
 
   const cost = options.rateCost ?? 1;
+  const trace = currentTrace();
+  const startedAt = Date.now();
   const request = (async (): Promise<T> => {
     for (let i = 0; i < cost; i++) {
       await limiter.acquire();
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30_000);
+    const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 30_000);
     try {
       const res = await fetch(url, {
         method,
@@ -323,6 +341,15 @@ export async function apiGet<T>(path: string, options: RequestOptions = {}): Pro
       } catch {
         throw new OpenDotaApiError(`OpenDota returned invalid JSON for ${path}`, 502, url);
       }
+      logUpstream({
+        trace_id: trace.trace_id,
+        tool: trace.tool,
+        method,
+        path,
+        status: res.status,
+        duration_ms: Date.now() - startedAt,
+        cache: options.forceRefresh ? "refresh" : options.noCache ? "bypass" : "miss",
+      });
       if (method === "GET") {
         const entry: CacheEntry = { expiresAt: Date.now() + ttlMs(options.ttl), data };
         cache.set(cacheKey, entry);
@@ -336,6 +363,15 @@ export async function apiGet<T>(path: string, options: RequestOptions = {}): Pro
       }
       return data as T;
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logUpstream({
+        trace_id: trace.trace_id,
+        tool: trace.tool,
+        method,
+        path,
+        duration_ms: Date.now() - startedAt,
+        error: message.slice(0, 200),
+      });
       if (err instanceof OpenDotaApiError) throw err;
       if (err instanceof Error && err.name === "AbortError") {
         throw new OpenDotaApiError(`OpenDota request timed out for ${path}`, 504, url);
