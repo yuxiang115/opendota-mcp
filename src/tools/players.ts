@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { apiGet } from "../client.js";
+import { getCountries } from "../constants.js";
 import { gameModeName, heroRef, laneRoleLabel, lobbyTypeName, patchName, rankTierToLabel, regionName, enrichPlayerMatchRow, formatTimestamp } from "../mapping.js";
 import { effectiveLanguage, languageParam, playerFilterShape, toQuery, type ToolDef } from "./registry.js";
 
@@ -43,8 +44,18 @@ export const playerTools: ToolDef[] = [
     },
     handler: async (args) => {
       const data = await apiGet<Record<string, any>>(`/players/${args.account_id}`, { ttl: "listing" });
+      let country: string | undefined;
+      try {
+        const code = data.profile?.loccountrycode;
+        if (code) {
+          country = (await getCountries())[code]?.name?.common;
+        }
+      } catch {
+        /* countries table unavailable */
+      }
       return {
         ...data,
+        country,
         rank_tier: rankTierToLabel(data.rank_tier, data.leaderboard_rank),
         rank_tier_raw: data.rank_tier,
         leaderboard_rank: data.leaderboard_rank,

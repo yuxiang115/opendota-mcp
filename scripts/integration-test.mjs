@@ -27,6 +27,10 @@ function head(v, n = 260) {
   return s.length > n ? s.slice(0, n) + "…" : s;
 }
 
+/** SKIP_LIVE=1 runs only the offline mock regressions (F-K) — useful when OpenDota is down or in CI. */
+const LIVE = !process.env.SKIP_LIVE;
+if (!LIVE) console.log("(SKIP_LIVE=1: online scenarios disabled, mock regressions only)");
+
 async function boot(env = {}) {
   const transport = new StdioClientTransport({
     command: process.execPath,
@@ -64,6 +68,7 @@ const langDesc = schema?.properties?.language?.description ?? "";
 ok("language param documented in schema", langDesc.includes("language") || langDesc.length > 0);
 
 // ─────────────────────────────────────────────────────────────
+if (LIVE) {
 console.log("\n■ Scenario A — agent flow: 「敌法师克制哪些英雄？」(all-Chinese input)");
 const search = await call(client, "search_dota_entities", { query: "敌法师" });
 const am = search.matches?.find((m) => m.kind === "hero");
@@ -151,6 +156,7 @@ ok("default language applied without per-call param", zhHeroes.find((h) => h.id 
 const zhRecent = await call(client2, "get_pro_matches", { limit: 2 });
 ok("pro matches also localized by default", zhRecent.every((m) => typeof m.match_id === "number"));
 await client2.close();
+} // LIVE
 
 // ─────────────────────────────────────────────────────────────
 console.log("\n■ Boot #3: Windows-style spawn via `cmd /c npx .` (Claude Desktop pattern)");
@@ -204,7 +210,7 @@ console.log("\n■ Regression F — request coalescing (mock upstream, exact req
 
 // ─────────────────────────────────────────────────────────────
 console.log("\n■ Regression G — default significant=0 keeps Turbo players visible (live)");
-{
+if (LIVE) {
   const client4 = await boot();
   const heroes = await call(client4, "get_player_heroes", { account_id: 48645517, date: 30 });
   ok("turbo-only player has a hero pool by default", heroes.some((h) => h.games > 0), `heroes with games: ${heroes.filter((h) => h.games > 0).length}`);
@@ -343,6 +349,55 @@ console.log("\n■ Regression J — full field decoding (region/patch/towers/pic
   ok("kill streaks labeled", pl.kill_streaks?.["Killing Spree"] === 1, JSON.stringify(pl.kill_streaks));
   ok("biggest hit resolves victim hero + inflictor", pl.biggest_hit?.on?.name_en === "Pudge" && typeof pl.biggest_hit?.with === "string", JSON.stringify(pl.biggest_hit));
   ok("permanent buff localized via item tables", pl.permanent_buffs?.[0]?.name === "阿哈利姆魔晶", JSON.stringify(pl.permanent_buffs));
+  await mc.close();
+  mock.close();
+}
+
+// ─────────────────────────────────────────────────────────────
+console.log("\n■ Regression K — official position port, firstblood resolution, facet decode");
+{
+  const g = (base) => Array.from({ length: 13 }, (_, i) => Math.round((i + 1) * base));
+  const mk = (slot, heroId, laneRole, goldBase, lhBase, wards = 0, variant = 0) => ({
+    player_slot: slot, account_id: 2000 + slot, personaname: `t${slot}`, hero_id: heroId,
+    lane: laneRole === 2 ? 2 : slot < 5 ? 1 : 3, lane_role: laneRole, hero_variant: variant,
+    gold_per_min: 600, kills: 1, deaths: 1, assists: 1, level: 20, radiant_win: true,
+    duration: 1500, start_time: 1700000000, game_mode: 22, lobby_type: 7,
+    gold_t: g(goldBase), lh_t: g(lhBase),
+    purchase_log: wards > 0 ? [{ key: "ward_observer", time: 300 }] : [],
+  });
+  const match = {
+    match_id: 444444, radiant_win: true, radiant_score: 9, dire_score: 9, duration: 1500,
+    start_time: 1700000000, game_mode: 22, lobby_type: 7, region: 1,
+    objectives: [{ time: 70, type: "CHAT_MESSAGE_FIRSTBLOOD", key: 7, player_slot: 0 }],
+    players: [
+      // Radiant: farm order by gold/lh windows -> pos 1..5, support with ward sinks to 5
+      mk(0, 1, 1, 100, 50), // highest farm, safe -> 1
+      mk(1, 2, 2, 80, 40), // mid -> 2
+      mk(2, 3, 3, 60, 30), // off -> 3
+      mk(3, 4, 3, 40, 20), // low farm, no ward -> 4
+      mk(4, 5, 1, 20, 10, 1), // lowest farm + ward, safe -> 5
+      // Dire mirror
+      mk(128, 6, 1, 100, 50), mk(129, 7, 2, 80, 40), mk(130, 8, 3, 60, 30),
+      mk(131, 9, 3, 40, 20), mk(132, 10, 1, 20, 10, 1, 2),
+    ],
+  };
+  const mock = (await import("node:http")).createServer((req, res) => {
+    const path = req.url.replace(/^\/api/, "").split("?")[0];
+    res.setHeader("content-type", "application/json");
+    if (path === "/matches/444444") res.end(JSON.stringify(match));
+    else if (path === "/constants/hero_abilities")
+      res.end(JSON.stringify({ npc_dota_hero_morphling: { facets: [{ id: 2, name: "morphling_shifty", title: "Shifty" }] } }));
+    else res.end("{}");
+  });
+  await new Promise((r) => mock.listen(0, "127.0.0.1", r));
+  const mc = await boot({ OPENDOTA_BASE_URL: `http://127.0.0.1:${mock.address().port}/api` });
+  const m = await call(mc, "get_match", { match_id: 444444, include: { objectives: true } });
+  ok("official position port: farm order + ward tiebreak", [0, 1, 2, 3, 4].map((s) => m.players.find((p) => p.player_slot === s).position).join("") === "12345", [0, 1, 2, 3, 4].map((s) => m.players.find((p) => p.player_slot === s).position).join(""));
+  ok("official position port (dire side)", [128, 129, 130, 131, 132].map((s) => m.players.find((p) => p.player_slot === s).position).join("") === "12345");
+  const fb = m.objectives.find((o) => o.event === "First Blood");
+  ok("firstblood resolved: killer by player_slot, victim by players index", fb?.killer?.name_en === "Anti-Mage" && fb?.victim?.name_en === "Juggernaut", JSON.stringify(fb));
+  const direFive = m.players.find((p) => p.player_slot === 132);
+  ok("facet resolved from hero_abilities constants", direFive?.facet?.title === "Shifty", JSON.stringify(direFive?.facet));
   await mc.close();
   mock.close();
 }

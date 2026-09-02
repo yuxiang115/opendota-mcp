@@ -271,6 +271,48 @@ export function getPermanentBuffs(): Promise<Record<string, string>> {
   return apiGet<Record<string, string>>("/constants/permanent_buffs", { ttl: "constants" });
 }
 
+export interface HeroFacet {
+  id: number;
+  name: string;
+  title?: string;
+  description?: string;
+  deprecated?: string;
+}
+
+/** Per-hero ability/facet tables from /constants/hero_abilities. */
+export function getHeroAbilities(): Promise<Record<string, { facets?: HeroFacet[] }>> {
+  return apiGet<Record<string, { facets?: HeroFacet[] }>>("/constants/hero_abilities", { ttl: "constants" });
+}
+
+export interface ChatWheelEntry {
+  id: number;
+  name?: string;
+  label?: string;
+  message?: string;
+}
+
+/** In-game chat wheel phrases (dotaconstants chat_wheel.json; also covers sprays/stickers keyspace partially). */
+export function getChatWheel(): Promise<Record<string, ChatWheelEntry>> {
+  return apiGet<Record<string, ChatWheelEntry>>("/constants/chat_wheel", { ttl: "constants" });
+}
+
+export interface CountryEntry {
+  name?: { common?: string };
+  cca2?: string;
+}
+
+export function getCountries(): Promise<Record<string, CountryEntry>> {
+  return apiGet<Record<string, CountryEntry>>("/constants/countries", { ttl: "constants" });
+}
+
+/** All constant resources available via get_constants (mirrors the dotaconstants package file list). */
+export const CONSTANTS_RESOURCES = [
+  "abilities", "ability_ids", "aghs_desc", "ancients", "chat_wheel", "cluster", "countries",
+  "game_mode", "hero_abilities", "hero_lore", "heroes", "item_colors", "item_ids", "items",
+  "lobby_type", "neutral_abilities", "order_types", "patch", "patchnotes", "permanent_buffs",
+  "player_colors", "region", "skillshots", "xp_level",
+] as const;
+
 /** Get the name for an arbitrary constant resource (passthrough). */
 export function getConstantResource(resource: string): Promise<unknown> {
   return apiGet<unknown>(`/constants/${encodeURIComponent(resource)}`, { ttl: "constants" });

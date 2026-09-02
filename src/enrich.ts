@@ -3,6 +3,7 @@ import { getLocaleBundle } from "./locales.js";
 import {
   decodeBarracksStatus,
   decodeTowerStatus,
+  getHeroAbilities,
   getItems,
   getOrderTypes,
   getPermanentBuffs,
@@ -12,6 +13,7 @@ import {
   MULTI_KILL_LABELS,
   OBJECTIVE_LABELS,
   RUNE_LABELS,
+  getChatWheel,
   labelEnumKeyMap,
   XP_REASON_LABELS,
   labelEnumKey,
@@ -128,11 +130,82 @@ function laneLabel(lane: number | undefined): string | undefined {
 }
 
 /**
- * Estimate Dota positions 1-5 per team from lane_role (1 safe / 2 mid / 3 off /
- * 4 jungle) plus within-lane farm order: the highest-farming player of each lane
- * group takes that lane's primary position (1/2/3), the rest fill 4/5 by farm.
- * Parsed matches sometimes carry role ("Core"/"Support"); when present it
- * reserves Support players for the 4/5 pool.
+ * Position estimation, ported from odota/core svc/util/compute.ts estimatePositions
+ * (documented 98.9% exact vs reference labels on 100 pro matches, odota/core#1590):
+ * rank each team by early farm priority (gold/lh averaged over minutes 10-12, early
+ * ward purchases breaking ties toward support); top 3 are cores mapped to 1/2/3 via
+ * lane_role, bottom 2 are supports (mid/off support -> 4, safe-lane support -> 5;
+ * is_roaming deliberately plays no part). Only runs when the whole team has parsed
+ * time-series data — otherwise callers fall back to the heuristic below.
+ */
+function estimatePositionsOfficial(rawPlayers: Record<string, any>[]): (number | undefined)[] {
+  const out: (number | undefined)[] = rawPlayers.map(() => undefined);
+  for (const radiant of [true, false]) {
+    const team = rawPlayers
+      .map((p, i) => ({ p, i }))
+      .filter(({ p }) => sideFromPlayerSlot(p.player_slot ?? (radiant ? 0 : 128)) === (radiant ? "radiant" : "dire"));
+    if (team.length !== 5) continue;
+    const parsed = team.every(
+      ({ p }) =>
+        Array.isArray(p.gold_t) && (p.gold_t as number[]).length > 12 &&
+        Array.isArray(p.lh_t) && (p.lh_t as number[]).length > 12 &&
+        p.lane_role != null,
+    );
+    if (!parsed) continue;
+    const avgWindow = (arr: number[]) => (arr[10] + arr[11] + arr[12]) / 3;
+    const scored = team.map(({ p, i }) => ({
+      i,
+      p,
+      gold: avgWindow(p.gold_t as number[]),
+      lh: avgWindow(p.lh_t as number[]),
+      wards: ((p.purchase_log ?? []) as { key?: string; time?: number }[]).filter(
+        (e) => (e.key === "ward_observer" || e.key === "ward_sentry") && (e.time ?? 0) <= 12 * 60,
+      ).length,
+      rank_gold: 0,
+      rank_lh: 0,
+      farmRank: 0,
+    }));
+    for (const key of ["gold", "lh"] as const) {
+      const sorted = [...scored].sort((a, b) => b[key] - a[key]);
+      scored.forEach((s) => {
+        s[key === "gold" ? "rank_gold" : "rank_lh"] = sorted.indexOf(s);
+      });
+    }
+    scored.forEach((s) => {
+      s.farmRank = s.rank_gold + s.rank_lh;
+    });
+    scored.sort((a, b) => a.farmRank - b.farmRank || a.wards - b.wards);
+    const assign = (group: typeof scored, wanted: number[], prefer: (p: Record<string, any>) => number | null) => {
+      const taken = new Set<number>();
+      const unassigned: typeof scored = [];
+      for (const s of group) {
+        const want = prefer(s.p);
+        if (want != null && wanted.includes(want) && !taken.has(want)) {
+          out[s.i] = want;
+          taken.add(want);
+        } else {
+          unassigned.push(s);
+        }
+      }
+      const remaining = wanted.filter((w) => !taken.has(w));
+      unassigned.forEach((s, idx) => {
+        out[s.i] = remaining[idx];
+      });
+    };
+    assign(scored.slice(0, 3), [1, 2, 3], (p) =>
+      p.lane_role >= 1 && p.lane_role <= 3 ? p.lane_role : null,
+    );
+    assign(scored.slice(3), [4, 5], (p) =>
+      p.lane_role === 2 || p.lane_role === 3 ? 4 : p.lane_role === 1 ? 5 : null,
+    );
+  }
+  return out;
+}
+
+/**
+ * Last-resort position heuristic for rows without parsed time series:
+ * lane_role groups with within-lane farm order (this server's own heuristic,
+ * NOT OpenDota's algorithm — only used when official data is unavailable).
  */
 function assignPositions(rawPlayers: Record<string, any>[]): (number | undefined)[] {
   const out: (number | undefined)[] = rawPlayers.map(() => undefined);
@@ -341,6 +414,20 @@ async function enrichMatchPlayer(
   if (Array.isArray(p.buyback_log) && p.buyback_log.length > 0) {
     out.buybacks = (p.buyback_log as { time: number }[]).map((b) => formatDuration(b.time));
   }
+  // hero_variant: 1-indexed facet id (spec); 0 means not recorded (parser falls
+  // back to a legacy field, and facet id 0 is deprecated in the constants table).
+  const variant = p.hero_variant as number | undefined;
+  if (typeof variant === "number" && variant > 0 && p.hero_id != null) {
+    try {
+      const internalHero = getLocaleBundle("english").heroes[String(p.hero_id)]?.internal ?? "";
+      const facet = (await getHeroAbilities())[internalHero]?.facets?.find((f) => f.id === variant);
+      if (facet) {
+        out.facet = { id: variant, title: facet.title ?? facet.name, internal: facet.name };
+      }
+    } catch {
+      /* facet table unavailable — omit */
+    }
+  }
   if (includeBenchmarks && p.benchmarks != null) {
     out.benchmarks = p.benchmarks;
   }
@@ -446,14 +533,17 @@ export async function enrichMatch(
         ),
       )
     : [];
-  // Positions: prefer OpenDota's own position_est (behavior-based, available on parsed
-  // matches); the lane+farm heuristic only fills players without a native estimate.
+  // Positions: prefer OpenDota's native position_est, then the ported official
+  // algorithm, then the lane+farm heuristic for rows without parsed data.
   const rawPlayers = (Array.isArray(match.players) ? match.players : []) as Record<string, any>[];
-  const positions = assignPositions(rawPlayers);
+  const officialPos = estimatePositionsOfficial(rawPlayers);
+  const heuristicPos = assignPositions(rawPlayers);
   players.forEach((pl, i) => {
     const native = rawPlayers[i]?.position_est;
     pl.position =
-      typeof native === "number" && native >= 1 && native <= 5 ? native : positions[i];
+      typeof native === "number" && native >= 1 && native <= 5
+        ? native
+        : officialPos[i] ?? heuristicPos[i];
   });
 
   // Losing-team gold swing, computed from the per-minute advantage array (pure math).
@@ -530,16 +620,49 @@ export async function enrichMatch(
     );
   }
   if (includeObjectives && Array.isArray(match.objectives)) {
-    out.objectives = match.objectives.map((o: Record<string, any>) => ({
-      time: formatDuration(o.time),
-      event: OBJECTIVE_LABELS[o.type as string] ?? o.type,
-      // key/slot semantics vary per event type (killer slot, hero id, building id) — kept raw.
-      key: o.key,
-      player_slot: o.player_slot,
-    }));
+    out.objectives = await Promise.all(
+      (match.objectives as Record<string, any>[]).map(async (o) => {
+        const entry: Record<string, unknown> = {
+          time: formatDuration(o.time),
+          event: OBJECTIVE_LABELS[o.type as string] ?? o.type,
+          // key/slot semantics vary per event type — kept raw below; firstblood is
+          // resolved per odota/web FirstbloodEvent: player_slot = killer, key =
+          // victim's index into the players array.
+          key: o.key,
+          player_slot: o.player_slot,
+        };
+        if (o.type === "CHAT_MESSAGE_FIRSTBLOOD") {
+          const killer = rawPlayers.find((p) => p.player_slot === o.player_slot);
+          const victim = rawPlayers[o.key as number];
+          if (killer?.hero_id != null) entry.killer = await heroRef(killer.hero_id, lang);
+          if (victim?.hero_id != null) entry.victim = await heroRef(victim.hero_id, lang);
+        }
+        return entry;
+      }),
+    );
   }
   if (includeChat && Array.isArray(match.chat)) {
-    out.chat = match.chat.map((c: any) => ({ ...c, time: formatDuration(c.time) }));
+    out.chat = await Promise.all(
+      (match.chat as Record<string, any>[]).map(async (c) => {
+        const entry: Record<string, unknown> = { time: formatDuration(c.time), type: c.type };
+        if (c.type === "chatwheel") {
+          // chatwheel keys are chat_wheel phrase ids when small; large ids are
+          // cosmetics (sprays/stickers) with no phrase mapping — kept raw.
+          let phrase: string | undefined;
+          try {
+            const wheel = await getChatWheel();
+            phrase = wheel[String(c.key)]?.message ?? wheel[String(c.key)]?.label;
+          } catch {
+            /* keep raw */
+          }
+          entry.message = phrase ?? `chatwheel:${c.key}`;
+        } else {
+          entry.player_slot = c.player_slot;
+          entry.message = c.key;
+        }
+        return entry;
+      }),
+    );
   }
   if (includeDraftTimings && Array.isArray(match.draft_timings)) {
     out.draft_timings = await Promise.all(

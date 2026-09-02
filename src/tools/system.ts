@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { apiGet } from "../client.js";
-import { getConstantResource } from "../constants.js";
+import { CONSTANTS_RESOURCES, getConstantResource } from "../constants.js";
 import { getLocaleBundle, LANGUAGE_LABELS, listBundledLanguages, SUPPORTED_LANGUAGES } from "../locales.js";
 import { languageParam, effectiveLanguage, type ToolDef } from "./registry.js";
 
@@ -33,15 +33,11 @@ export const systemTools: ToolDef[] = [
   {
     name: "get_constants",
     description:
-      "Get a raw OpenDota game-constants resource (heroes, items, abilities, item_ids, ability_ids, game_mode, " +
-      "lobby_type, region, patch, cluster, countries, ...). Note: OpenDota constants are English-only; " +
-      "for localized names prefer tools with a language parameter.",
+      "Get a raw OpenDota game-constants resource. These mirror the dotaconstants package files: " +
+      `${CONSTANTS_RESOURCES.join(", ")}. ` +
+      "Note: constants are English-only; for localized hero/item/ability names prefer tools with a language parameter.",
     schema: {
-      resource: z
-        .string()
-        .describe(
-          "Constant resource name, e.g. heroes, items, item_ids, abilities, ability_ids, game_mode, lobby_type, region, patch.",
-        ),
+      resource: z.string().describe(`One of: ${CONSTANTS_RESOURCES.join(", ")}.`),
     },
     handler: async (args) => {
       return getConstantResource(args.resource);
