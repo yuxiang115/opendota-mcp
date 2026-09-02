@@ -8,14 +8,17 @@ Built so an agent can answer questions like *"敌法师克制哪些英雄？"*, 
 
 ## Highlights
 
-- **42 tools** covering the whole public OpenDota API: matches, players, heroes, teams, pro scene, leagues, live games, constants, search, and replay-parse submission.
+- **52 tools** covering the whole public OpenDota API (61 with an optional STRATZ token): matches, players, heroes, teams, pro scene, leagues, live games, scenarios, raw SQL explorer, constants, search, and replay-parse submission.
 - **Data mapping for LLMs** — responses are compact and readable out of the box:
   - `hero_id: 53` → `hero: { id: 53, name: "自然先知", name_en: "Nature's Prophet" }`
   - `game_mode: 22` → `"All Draft"`, `lobby_type: 7` → `"Ranked"`, `rank_tier: 55` → `"Legend 5"`
   - durations → `"37:22"`, timestamps → ISO, per-player KDA/win/side computed, win rates pre-calculated
-- **28 languages** for hero/item/ability names (English, 简体中文, 繁體中文, Русский, Español, Português, Français, Deutsch, 日本語， 한국어, ไทย, Tiếng Việt, Türkçe, + more), generated from Valve's official localized game data. Per-tool `language` parameter or a global default via env.
+- **Statistically honest aggregates**: every win rate carries a 95% confidence half-width (`win_rate_ci95_pp`) and small samples are flagged `low_sample`, so agents say "countered, 62% ± 4" instead of quoting noise as fact.
+- **28 languages** for hero/item/ability names (English, 简体中文, 繁體中文, Русский, Español, Português, Français, Deutsch, 日本語, 한국어, ไทย, Tiếng Việt, Türkçe, + more), generated from Valve's official localized game data. Per-tool `language` parameter or a global default via env.
 - **Agent-friendly entry points**: `search_dota_entities` resolves any localized or English name ("敌法师", "blink dagger", "祈求者") to the ids other tools need; `search_players` finds account ids by display name.
-- **Polite API client**: built-in token-bucket rate limiting (respects the 60/min free tier), response caching, 429 handling, and optional `OPENDOTA_API_KEY` support.
+- **Optional STRATZ layer** (`STRATZ_API_TOKEN`, free): nine rank-bracket/position-split aggregate tools with full-pool samples — bracket counters, item builds, talent/skill stats, lane matchups, position stats, patch trends, counter-pick and full lineup composition analysis with data-backed coaching notes.
+- **Guidance baked in**: 4 registered MCP prompts (`match-analysis`, `player-review`, `hero-guide`, `meta-report`) plus a loadable [Agent Skill](./skill/SKILL.md) encoding the full analysis playbook.
+- **Polite API client**: built-in token-bucket rate limiting (respects the 60/min free tier), response caching with disk persistence, 429 handling, and optional `OPENDOTA_API_KEY` support.
 
 ## Quick start
 
@@ -70,14 +73,14 @@ the skill too — it just shortens the agent's path to the right tools.
 | `OPENDOTA_LANGUAGE` | `english` | Default language for hero/item/ability names. Accepts Steam codes (`schinese`) or tags (`zh-CN`). |
 | `OPENDOTA_BASE_URL` | `https://api.opendota.com/api` | Point at a self-hosted OpenDota instance if you run one. |
 | `OPENDOTA_RATE_LIMIT` | `55` (or `1200` with a key) | Max requests/minute the client will send. |
-| `STRATZ_API_TOKEN` | *(none)* | **Enables the STRATZ tools.** Free token from [stratz.com/api](https://stratz.com/api) (Steam login). Adds 6 rank-bracket/position-split aggregate tools (see below). |
+| `STRATZ_API_TOKEN` | *(none)* | **Enables the STRATZ tools.** Free token from [stratz.com/api](https://stratz.com/api) (Steam login). Adds 9 rank-bracket/position-split aggregate tools (see below). |
 | `STRATZ_BASE_URL` | `https://api.stratz.com/graphql` | Override for testing. |
 
 ### STRATZ-powered bracket stats (optional)
 
 OpenDota's public scenario endpoints no longer filter by rank bracket and its
 hero-vs-hero aggregates draw from a small parsed-match sample (~100 games per
-pairing). When `STRATZ_API_TOKEN` is set, six additional tools register,
+pairing). When `STRATZ_API_TOKEN` is set, nine additional tools register,
 backed by [STRATZ](https://stratz.com)'s GraphQL API with full-pool samples
 (tens of thousands of games) and bracket/position filters:
 
@@ -197,10 +200,24 @@ All player-match tools accept the standard OpenDota filters (`hero_id`, `game_mo
 | `get_hero_recent_matches` | Recent public matches on a hero. |
 | `get_hero_benchmarks` | Percentile benchmarks by rank bracket. |
 | `get_hero_item_popularity` | Items by game phase, named. |
-| `get_item_winrate_vs_hero` | **Item win rate against one specific enemy** (explorer cross-tab): with/without comparison per item, or the matchup's most common final-build items ranked. |
 | `get_hero_duration_performance` | Win rate by game-duration bin. |
 | `get_hero_players` | Top players of a hero. |
 | `get_hero_rankings` | Global hero leaderboard. |
+
+### Scenarios & explorer
+
+Aggregated public-match statistics via OpenDota's scenario/explorer datasets (parsed matches only; no rank-bracket filter upstream — the STRATZ tools above cover bracket splits).
+
+| Tool | Description |
+|---|---|
+| `get_item_timing_stats` | Win rate by item purchase timing ("PA with Battle Fury before minute 15: 58%"). |
+| `get_lane_role_stats` | Win rate per lane role × game-length bin. |
+| `get_public_matches` | Live feed of recent public matches by rank bracket, heroes resolved. |
+| `get_skill_builds` | Most common ability-upgrade orders with per-level win rates (SQL aggregation). |
+| `get_hero_synergy` | Best/worst allies for a hero by same-team win rate. |
+| `get_item_winrate_vs_hero` | **Item win rate against one specific enemy** — the with/without cross-tab ("Ember with Spirit Vessel vs Necrophos: 52.8% vs 46.2%"). |
+| `get_explorer_schema` | Table/column dictionary of the public SQL dataset. |
+| `run_explorer_query` | Run your own read-only SQL against it. |
 
 ### Teams, pro scene & live
 
@@ -212,6 +229,17 @@ All player-match tools accept the standard OpenDota filters (`hero_id`, `game_mo
 | `get_pro_players` | Registered pro players. |
 | `get_leagues` / `get_league_matches` | Leagues and their matches. |
 | `get_live_matches` | Top live games with heroes and ranks. |
+
+## Prompts
+
+Four ready-made workflow prompts are registered on the server (slash menu / prompt picker in MCP clients), encoding the validated analysis playbooks:
+
+| Prompt | Use |
+|---|---|
+| `match-analysis` | Full post-game breakdown: timeline, lanes, draft, blame analysis with data evidence. |
+| `player-review` | Recent form: win rates, hero pool, rank trend, improvement advice. |
+| `hero-guide` | Complete current-patch guide for one hero (abilities → bracket stats → counters → builds → timing). |
+| `meta-report` | Patch meta report by bracket with pro-scene signals. |
 
 ## Localization
 
