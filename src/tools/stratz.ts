@@ -288,10 +288,17 @@ const rawStratzTools: ToolDef[] = [
     description:
       "Hero counters WITH RANK-BRACKET FILTER, from STRATZ's full match pool (much larger samples than " +
       "get_hero_matchups). Returns who the hero beats (win rate > 52%) and who it struggles against (< 48%), " +
-      "each with games, win rate and a 95% confidence interval. Source: stratz.com; requires STRATZ_API_TOKEN.",
+      "each with games, win rate and a 95% confidence interval. Pass vs_hero to get ONE exact pairing's win " +
+      "rate — works even for mid-table matchups that don't make either list. Source: stratz.com; requires STRATZ_API_TOKEN.",
     schema: {
       hero: heroArg,
       bracket: bracketArg,
+      vs_hero: z
+        .union([z.number().int().positive(), z.string().min(1)])
+        .optional()
+        .describe(
+          "Optional: one specific opposing hero. Returns its exact matchup row (games, win rate, ci95) even when the pairing is too mid-table for the strong/struggles lists.",
+        ),
       take: z.number().int().min(3).max(20).optional().describe("Rows per list (default 10)."),
       language: languageParam,
     },
@@ -300,9 +307,10 @@ const rawStratzTools: ToolDef[] = [
       const heroId = await resolveHeroId(args.hero, lang);
       if (typeof heroId === "object") return heroId;
       const take = args.take ?? 10;
+      // take: 120 = full hero pool, so mid-table matchups (48-52%) are fetched too.
       const data = await stratzQuery<{ heroStats: { heroVsHeroMatchup: { advantage: { vs: PairRow[] }[]; disadvantage: { vs: PairRow[] }[] } | null } }>(
         "heroVsHeroMatchup",
-        `query { heroStats { heroVsHeroMatchup(heroId: ${heroId}${bracketFilter(args.bracket)}, take: 50) ` +
+        `query { heroStats { heroVsHeroMatchup(heroId: ${heroId}${bracketFilter(args.bracket)}, take: 120) ` +
           `{ advantage { heroId vs { heroId2 matchCount winCount } } disadvantage { heroId vs { heroId2 matchCount winCount } } } } }`,
       );
       const mu = data?.heroStats?.heroVsHeroMatchup;
@@ -310,6 +318,26 @@ const rawStratzTools: ToolDef[] = [
       for (const p of [...(mu?.advantage?.[0]?.vs ?? []), ...(mu?.disadvantage?.[0]?.vs ?? [])]) {
         if (p.heroId2 !== heroId && (!pairs.has(p.heroId2) || p.matchCount > pairs.get(p.heroId2)!.matchCount)) {
           pairs.set(p.heroId2, p);
+        }
+      }
+      let vsMatchup: Record<string, unknown> | undefined;
+      if (args.vs_hero != null) {
+        const vsHeroId = await resolveHeroId(args.vs_hero, lang);
+        if (typeof vsHeroId === "object") return vsHeroId;
+        if (vsHeroId === heroId) {
+          return { error: "vs_hero is the same hero — heroVsHeroMatchup only covers different-hero pairings." };
+        }
+        const row = pairs.get(vsHeroId);
+        if (row) {
+          const wrPct = pct(row.winCount, row.matchCount);
+          vsMatchup = {
+            hero: (await heroRef(heroId, lang))?.name,
+            vs_hero: (await heroRef(vsHeroId, lang))?.name,
+            stance: wrPct >= 52 ? "favored" : wrPct <= 48 ? "unfavored" : "even",
+            ...wr(row.matchCount, row.winCount),
+          };
+        } else {
+          vsMatchup = { vs_hero: (await heroRef(vsHeroId, lang))?.name, note: "no games against this hero in the current pool" };
         }
       }
       const rows = await Promise.all(
@@ -323,6 +351,7 @@ const rawStratzTools: ToolDef[] = [
       return {
         hero: (await heroRef(heroId, lang))?.name,
         bracket: args.bracket ? bracketRangeLabel(args.bracket, lang) : bracketAllLabel(lang),
+        ...(vsMatchup ? { vs_hero_matchup: vsMatchup } : {}),
         strong_against: strong,
         struggles_against: weak,
         note: "Win rates are this hero's, recomputed from raw counts; use ci95_pp when quoting numbers.",

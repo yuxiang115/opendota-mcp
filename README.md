@@ -87,7 +87,7 @@ backed by [STRATZ](https://stratz.com)'s GraphQL API with full-pool samples
 
 | Tool | Answers |
 |---|---|
-| `get_matchups_by_rank` | Who does a hero beat / lose to **at a given bracket** (with 95% CIs). |
+| `get_matchups_by_rank` | Who does a hero beat / lose to **at a given bracket** (with 95% CIs). Pass `vs_hero` for one exact pairing, even mid-table ones. |
 | `get_item_builds_by_rank` | Which items a hero buys at a bracket/position, average purchase minute, and win rate. |
 | `get_talent_stats` | Which talent choice actually wins, per bracket/position. |
 | `get_skill_builds_by_rank` | Skill builds per bracket/position: at what hero level each ability gets its first point and is maxed, with share + win rates. |
