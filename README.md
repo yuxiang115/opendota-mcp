@@ -138,6 +138,8 @@ All player-match tools accept the standard OpenDota filters (`hero_id`, `game_mo
 | Tool | Description |
 |---|---|
 | `get_heroes` | All heroes with localized names, attributes, roles, base stats. |
+| `get_hero_kit` | **Full ability reference for a hero** (accepts id or name, any language): every ability with description, mana cost, cooldown, per-level numbers, Aghanim's flags, plus all talents and non-deprecated facets — no more guessing what newer heroes do. |
+| `get_item_details` | **Item reference for up to 10 items** (id/name, any language): cost, active/passive effects, stat attributes, cooldown/mana, components. |
 | `get_hero_stats` | Pick/ban/win rates by bracket (Herald→Immortal, pro, turbo). |
 | `get_hero_matchups` | Counter relationships vs every other hero (win rates). |
 | `get_hero_recent_matches` | Recent public matches on a hero. |

@@ -8,6 +8,7 @@ import { playerTools } from "./tools/players.js";
 import { heroTools } from "./tools/heroes.js";
 import { proTools } from "./tools/pro.js";
 import type { ToolContext, ToolDef } from "./tools/registry.js";
+import { referenceTools } from "./tools/reference.js";
 import { systemTools } from "./tools/system.js";
 import { teamTools } from "./tools/teams.js";
 import {
@@ -29,7 +30,7 @@ import {
 import { apiGet, readBundleManifest, seedConstantsFromBundle, updateBundleManifest } from "./client.js";
 import { LOG_TARGET, logBoot, logToolCall, newTraceId, traceStorage } from "./telemetry.js";
 
-const PACKAGE_VERSION = "0.7.1";
+const PACKAGE_VERSION = "0.8.0";
 
 const allTools: ToolDef[] = [
   ...systemTools,
@@ -38,6 +39,7 @@ const allTools: ToolDef[] = [
   ...heroTools,
   ...teamTools,
   ...proTools,
+  ...referenceTools,
 ];
 
 const ctx: ToolContext = {

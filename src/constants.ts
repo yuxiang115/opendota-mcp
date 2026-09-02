@@ -280,8 +280,16 @@ export interface HeroFacet {
 }
 
 /** Per-hero ability/facet tables from /constants/hero_abilities. */
-export function getHeroAbilities(): Promise<Record<string, { facets?: HeroFacet[] }>> {
-  return apiGet<Record<string, { facets?: HeroFacet[] }>>("/constants/hero_abilities", { ttl: "constants" });
+export function getHeroAbilities(): Promise<Record<string, {
+  abilities?: string[];
+  talents?: { name: string; level?: number }[];
+  facets?: HeroFacet[];
+}>> {
+  return apiGet<Record<string, {
+    abilities?: string[];
+    talents?: { name: string; level?: number }[];
+    facets?: HeroFacet[];
+  }>>("/constants/hero_abilities", { ttl: "constants" });
 }
 
 export interface ChatWheelEntry {

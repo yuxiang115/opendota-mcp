@@ -172,7 +172,7 @@ try {
   const client3 = new Client({ name: "integration-test", version: "0.0.0" });
   await client3.connect(transport3);
   const t3 = await client3.listTools();
-  ok("npx-launched server lists tools", t3.tools.length === 42, `got ${t3.tools.length}`);
+  ok("npx-launched server lists tools", t3.tools.length === 44, `got ${t3.tools.length}`);
   const r3 = await call(client3, "search_dota_entities", { query: "斧王", language: "schinese" });
   ok("npx-launched server serves localized queries", r3.matches?.some((m) => m.name === "斧王"), head(r3.matches?.[0]));
   await client3.close();
@@ -634,6 +634,32 @@ console.log("\n■ Regression O — self-updating bundle (network refresh persis
   ok("bundle intact after restore", Object.keys(m2 ?? {}).length > 100);
   await mc2.close();
   mockO.close();
+}
+
+// ─────────────────────────────────────────────────────────────
+console.log("\n■ Regression P — hero kit / item details reference tools (bundle-served)");
+{
+  const mock = (await import("node:http")).createServer((req, res) => {
+    const p = req.url.replace(/^\/api/, "").split("?")[0];
+    res.setHeader("content-type", "application/json");
+    if (p === "/constants/patch") res.end(JSON.stringify([{ id: 60, name: "7.41" }]));
+    else res.end("{}");
+  });
+  await new Promise((r) => mock.listen(0, "127.0.0.1", r));
+  const port = mock.address().port;
+  const mc = await boot({ OPENDOTA_BASE_URL: `http://127.0.0.1:${port}/api`, OPENDOTA_BUNDLE_SEED: "1", OPENDOTA_BUNDLE_PERSIST: "0" });
+  const kit = await call(mc, "get_hero_kit", { hero: "敌法师", language: "schinese" });
+  ok("hero kit by localized name resolves", kit.hero?.name_en === "Anti-Mage", JSON.stringify(kit.hero));
+  ok("kit carries all abilities with numbers", kit.abilities?.length >= 4 && kit.abilities[1].name_en === "Blink" && kit.abilities[1].cooldown != null, `${kit.abilities?.length} abilities`);
+  ok("ability descriptions present", typeof kit.abilities[0].description === "string" && kit.abilities[0].description.length > 30, (kit.abilities[0].description ?? "").slice(0, 40));
+  ok("talents listed without placeholder residue", kit.talents?.length >= 8 && !kit.talents.some((t) => /\{[sd]:/.test(t.name) || /^\s*[/+-]\s/.test(t.name)), kit.talents?.[2]?.name);
+  const det = await call(mc, "get_item_details", { items: ["闪烁匕首", "bfury"], language: "schinese" });
+  ok("item details by localized/internal name", det.items?.[0]?.name === "闪烁匕首" && det.items?.[0]?.cost === 2250, JSON.stringify(det.items?.[0]?.cost));
+  ok("item effects and stats present", det.items?.[1]?.effects?.length >= 2 && det.items?.[1]?.stats?.some((s) => /Damage/i.test(s.label)), det.items?.[1]?.effects?.map((e) => e.title).join(","));
+  const miss = await call(mc, "get_hero_kit", { hero: 99999 });
+  ok("unknown hero returns error + hint", miss?.error != null && typeof miss.hint === "string");
+  await mc.close();
+  mock.close();
 }
 
 // ─────────────────────────────────────────────────────────────
