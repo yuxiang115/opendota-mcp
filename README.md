@@ -192,6 +192,17 @@ Cursor / Claude Desktop / any MCP client with JSON config:
 }
 ```
 
+**ChatGPT (connectors)**: Settings → Apps & Connectors → Advanced → *Add new
+connector*, paste the MCP URL. ChatGPT's UI cannot set custom headers, so pass
+credentials as URL query params instead — one URL unlocks everything:
+
+```
+https://your-host/mcp?stratz_token=<your STRATZ token>
+```
+
+(Query params end up in proxy access logs — fine for a home deployment, avoid
+on shared infrastructure.)
+
 Smoke-test the endpoint with curl (expect `mcp-session-id` in the response
 headers; without the header you get 401):
 

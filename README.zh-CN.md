@@ -169,6 +169,16 @@ Cursor / Claude Desktop / 任何支持 JSON 配置的 MCP 客户端：
 }
 ```
 
+**ChatGPT（连接器）**：设置 → 应用与连接器 → 高级 → *添加新连接器*，粘贴
+MCP URL 即可。ChatGPT 的界面填不了自定义请求头，凭证改用 URL 参数传递——
+一个 URL 解锁全部功能：
+
+```
+https://你的域名/mcp?stratz_token=<自己的 STRATZ token>
+```
+
+（URL 参数会进代理的访问日志——自用家庭部署没问题，共享基础设施上别这么干。）
+
 用 curl 冒烟测试（响应头里应出现 `mcp-session-id`；不带 token 会得到 401）：
 
 ```bash

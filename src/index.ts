@@ -273,7 +273,8 @@ async function startHttpServer(): Promise<void> {
     });
 
   const httpServer = createServer(async (req, res) => {
-    const pathname = new URL(req.url ?? "/", "http://localhost").pathname;
+    const url = new URL(req.url ?? "/", "http://localhost");
+    const pathname = url.pathname;
     if (req.method === "GET" && pathname === "/healthz") {
       res.writeHead(200, { "content-type": "text/plain" });
       res.end("ok");
@@ -286,9 +287,13 @@ async function startHttpServer(): Promise<void> {
     }
     // Per-caller upstream credentials: bring-your-own-key so the caller's
     // traffic bills to their OpenDota/STRATZ quota, not the operator's.
+    // Headers are the preferred vehicle; URL query params are the fallback for
+    // clients whose config UI cannot set custom headers (ChatGPT connectors):
+    //   https://host/mcp?stratz_token=...&opendota_key=...
+    // Caveat: proxies log query strings, so the token lands in their access logs.
     const creds: SessionCreds = {
-      openDotaKey: header(req, "x-opendota-key"),
-      stratzToken: header(req, "x-stratz-token"),
+      openDotaKey: header(req, "x-opendota-key") ?? (url.searchParams.get("opendota_key") ?? undefined),
+      stratzToken: header(req, "x-stratz-token") ?? (url.searchParams.get("stratz_token") ?? undefined),
     };
     if (authToken && req.headers.authorization !== `Bearer ${authToken}`) {
       res.writeHead(401, { "content-type": "application/json", "www-authenticate": 'Bearer realm="opendota-mcp"' });
