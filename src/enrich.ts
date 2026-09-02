@@ -362,6 +362,7 @@ async function enrichMatchPlayer(
     if (ref) backpack.push({ slot, ...ref });
   }
   const neutral = await itemRef(p.item_neutral as number, lang);
+  const neutral2 = await itemRef(p.item_neutral2 as number, lang);
 
   let abilityBuild: NameRef[] | undefined;
   const upgradesRaw = (p.ability_upgrades_arr as number[] | undefined) ?? (p.ability_upgrades as { ability: number }[] | undefined);
@@ -436,6 +437,7 @@ async function enrichMatchPlayer(
     items,
     backpack,
     neutral_item: neutral,
+    neutral_item_2: neutral2,
     ability_build: abilityBuild,
     obs_placed: p.obs_placed,
     sen_placed: p.sen_placed,
@@ -606,16 +608,25 @@ export async function enrichMatch(
       )
     : [];
   // Positions: prefer OpenDota's native position_est, then the ported official
-  // algorithm, then the lane+farm heuristic for rows without parsed data.
+  // algorithm, then the lane+farm heuristic. The derivation source is exposed
+  // per player so agents can tell a real estimate from a farm-order guess
+  // (unparsed matches have no lane data at all).
   const rawPlayers = (Array.isArray(match.players) ? match.players : []) as Record<string, any>[];
   const officialPos = estimatePositionsOfficial(rawPlayers);
   const heuristicPos = assignPositions(rawPlayers);
+  const anyLaneData = rawPlayers.some((rp) => rp.lane_role != null);
   players.forEach((pl, i) => {
     const native = rawPlayers[i]?.position_est;
-    pl.position =
-      typeof native === "number" && native >= 1 && native <= 5
-        ? native
-        : officialPos[i] ?? heuristicPos[i];
+    if (typeof native === "number" && native >= 1 && native <= 5) {
+      pl.position = native;
+      pl.position_basis = "position_est";
+    } else if (officialPos[i] != null) {
+      pl.position = officialPos[i];
+      pl.position_basis = "official_algorithm";
+    } else if (heuristicPos[i] != null) {
+      pl.position = heuristicPos[i];
+      pl.position_basis = anyLaneData ? "lane_farm_heuristic" : "farm_order_only";
+    }
   });
 
   // Lane results, same computation as the official Story tab (MatchStory LaneStory):
@@ -684,6 +695,12 @@ export async function enrichMatch(
     series_type: match.series_type,
     radiant_series_wins: match.radiant_series_wins,
     dire_series_wins: match.dire_series_wins,
+    parsed: match.od_data?.has_parsed,
+    note:
+      match.od_data?.has_parsed === false
+        ? "Unparsed match: basic data only (no teamfights/graphs/logs/lane data). " +
+          "Call request_match_parse with this match_id to unlock deep data, then re-fetch."
+        : undefined,
     players,
   };
 

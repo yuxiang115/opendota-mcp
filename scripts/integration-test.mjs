@@ -457,6 +457,40 @@ console.log("\n■ Regression L — website-parity enrichments (fantasy/lane win
 }
 
 // ─────────────────────────────────────────────────────────────
+console.log("\n■ Regression M — unparsed match shape (basic data, degraded positions)");
+{
+  const match = {
+    match_id: 464646, radiant_win: false, radiant_score: 15, dire_score: 31, duration: 1312,
+    start_time: 1788034374, game_mode: 23, lobby_type: 0, region: 1, patch: 60,
+    tower_status_radiant: 0, tower_status_dire: 2047, barracks_status_dire: 63,
+    od_data: { has_api: true, has_gcdata: false, has_parsed: false },
+    picks_bans: [{ is_pick: true, hero_id: 42, team: 1, order: 0 }, { is_pick: true, hero_id: 1, team: 0, order: 1 }],
+    players: Array.from({ length: 10 }, (_, i) => ({
+      player_slot: i < 5 ? i : 128 + (i - 5), account_id: 4000 + i, personaname: `u${i}`,
+      hero_id: (i % 10) + 1, kills: i, deaths: 2, assists: 3, level: 20, last_hits: 50,
+      gold_per_min: 600 + i * 100, item_neutral: 1605, item_neutral2: 1584, item_0: 1,
+      radiant_win: false, duration: 1312, start_time: 1788034374, game_mode: 23,
+    })),
+  };
+  const mock = (await import("node:http")).createServer((req, res) => {
+    const path = req.url.replace(/^\/api/, "").split("?")[0];
+    res.setHeader("content-type", "application/json");
+    if (path === "/matches/464646") res.end(JSON.stringify(match));
+    else res.end("{}");
+  });
+  await new Promise((r) => mock.listen(0, "127.0.0.1", r));
+  const mc = await boot({ OPENDOTA_BASE_URL: `http://127.0.0.1:${mock.address().port}/api` });
+  const m = await call(mc, "get_match", { match_id: 464646 });
+  ok("unparsed flag surfaced with parse hint", m.parsed === false && /request_match_parse/.test(m.note ?? ""));
+  ok("both neutral item slots resolved", m.players[0].neutral_item?.name_en === "Blink Dagger" || m.players[0].neutral_item != null, JSON.stringify(m.players[0].neutral_item));
+  ok("positions degrade transparently to farm order", m.players.every((p) => p.position_basis === "farm_order_only") && m.players[5].position === 5, m.players.map((p) => p.position).join(""));
+  ok("tower bitmask decodes on unparsed data", m.dire_towers_standing.all_standing === true && m.radiant_towers_standing.top_t1 === false);
+  ok("non-CM picks_bans teams decoded", m.picks_bans[0].team === "dire" && m.picks_bans[1].team === "radiant");
+  await mc.close();
+  mock.close();
+}
+
+// ─────────────────────────────────────────────────────────────
 console.log(`\n═══ 结果: ${passed} passed, ${failed} failed ═══`);
 if (failures.length) {
   console.log("Failures:");

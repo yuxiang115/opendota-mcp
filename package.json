@@ -1,6 +1,6 @@
 {
   "name": "opendota-mcp",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "MCP server for the OpenDota API with full data mapping and 26-language Dota 2 localization",
   "type": "module",
   "license": "MIT",
