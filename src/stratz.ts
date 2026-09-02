@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { STRATZ_API_TOKEN, STRATZ_BASE_URL } from "./config.js";
+import { sessionStratzToken } from "./session.js";
 import { currentTrace, logUpstream } from "./telemetry.js";
 
 /**
@@ -14,6 +15,16 @@ import { currentTrace, logUpstream } from "./telemetry.js";
  */
 
 export const STRATZ_ENABLED = STRATZ_API_TOKEN.length > 0;
+
+/** Token for the current request: the caller's own (X-Stratz-Token) wins over env. */
+export function activeStratzToken(): string {
+  return sessionStratzToken() ?? STRATZ_API_TOKEN;
+}
+
+/** Whether STRATZ tools are usable right now (env token or caller's own). */
+export function stratzAvailable(): boolean {
+  return activeStratzToken().length > 0;
+}
 
 const DISK_DIR = path.join(os.tmpdir(), "opendota-mcp-cache", "stratz");
 const DISK_VERSION = 1;
@@ -108,7 +119,7 @@ export async function stratzQuery<T = unknown>(label: string, query: string, opt
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
-        Authorization: `Bearer ${STRATZ_API_TOKEN}`,
+        Authorization: `Bearer ${activeStratzToken()}`,
         "User-Agent": "opendota-mcp (github.com/yuxiang115/opendota-mcp)",
       },
       body: JSON.stringify({ query }),
