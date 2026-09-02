@@ -29,7 +29,7 @@ import {
 import { apiGet, readBundleManifest, seedConstantsFromBundle, updateBundleManifest } from "./client.js";
 import { LOG_TARGET, logBoot, logToolCall, newTraceId, traceStorage } from "./telemetry.js";
 
-const PACKAGE_VERSION = "0.7.0";
+const PACKAGE_VERSION = "0.7.1";
 
 const allTools: ToolDef[] = [
   ...systemTools,

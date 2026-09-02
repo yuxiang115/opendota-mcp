@@ -33,18 +33,21 @@ export const proTools: ToolDef[] = [
     name: "get_pro_players",
     description:
       "List professional players (name, team, country, account id), most recently active first, " +
-      "capped at the limit (default 100 of ~2500) to keep responses small. Raise limit if needed.",
+      "paged with limit/offset (default first 100 of ~2500) to keep responses small. " +
+      "Use offset to walk deeper pages; has_more tells you whether another page exists.",
     schema: {
       limit: z.number().int().min(1).max(2000).optional().describe("Max players to return (default 100)."),
+      offset: z.number().int().min(0).optional().describe("Skip this many players before the page (pagination)."),
     },
     handler: async (args) => {
       const rows = await apiGet<Record<string, any>[]>("/proPlayers", { ttl: "listing" });
       const cap = args.limit ?? 100;
+      const start = args.offset ?? 0;
       // The API mixes Unix-seconds numbers and ISO date strings in last_match_time.
       const timeValue = (p: Record<string, any>) =>
         typeof p.last_match_time === "number" ? p.last_match_time : Date.parse(p.last_match_time ?? "") || 0;
       const sorted = [...rows].sort((a, b) => timeValue(b) - timeValue(a));
-      const limited = sorted.slice(0, cap).map((p) => ({
+      const limited = sorted.slice(start, start + cap).map((p) => ({
         account_id: p.account_id,
         name: p.name,
         steam_login: p.personaname,
@@ -55,7 +58,13 @@ export const proTools: ToolDef[] = [
         last_match_time:
           typeof p.last_match_time === "number" ? formatTimestamp(p.last_match_time) : p.last_match_time,
       }));
-      return { total_available: rows.length, returned: limited.length, players: limited };
+      return {
+        total_available: rows.length,
+        offset: start,
+        returned: limited.length,
+        has_more: start + limited.length < rows.length,
+        players: limited,
+      };
     },
   },
   {
