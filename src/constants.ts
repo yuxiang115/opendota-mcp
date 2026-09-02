@@ -289,6 +289,9 @@ export interface ChatWheelEntry {
   name?: string;
   label?: string;
   message?: string;
+  /** Whether the phrase is broadcast to all chat (vs allies-only) — odota/web Chat.tsx. */
+  all_chat?: boolean;
+  sound_ext?: string;
 }
 
 /** In-game chat wheel phrases (dotaconstants chat_wheel.json; also covers sprays/stickers keyspace partially). */

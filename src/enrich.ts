@@ -104,6 +104,59 @@ async function inflictorName(key: string, lang: SupportedLanguage): Promise<stri
   return item?.name ?? key;
 }
 
+/**
+ * Fantasy points, same weights as the official UI (matchColumns.tsx fantasyComponents):
+ * 0.3*kills + (3-0.3*deaths) + 0.003*(lh+dn) + 0.002*gpm + towers + roshans
+ * + 3*teamfight_participation + 0.5*obs_placed + 0.5*camps_stacked
+ * + 0.25*rune_pickups + 4*firstblood_claimed + 0.05*stuns
+ */
+function fantasyPoints(p: RawPlayer): number {
+  const v = (k: string) => Number(p[k] ?? 0);
+  return Math.round(
+    (0.3 * v("kills") +
+      (3 - 0.3 * v("deaths")) +
+      0.003 * v("last_hits") +
+      0.003 * v("denies") +
+      0.002 * v("gold_per_min") +
+      1 * v("towers_killed") +
+      1 * v("roshans_killed") +
+      3 * v("teamfight_participation") +
+      0.5 * v("obs_placed") +
+      0.5 * v("camps_stacked") +
+      0.25 * v("rune_pickups") +
+      4 * v("firstblood_claimed") +
+      0.05 * v("stuns")) *
+      100,
+  ) / 100;
+}
+
+/**
+ * Damage dealt to objectives, categorized the same way as odota/web transformMatch:
+ * tower keys keep their tier/lane suffix, rax keys their type/lane, plus
+ * roshan/fort(ancient)/shrine buckets.
+ */
+function objectiveDamage(p: RawPlayer): Record<string, number> | undefined {
+  const damage = p.damage as Record<string, number> | undefined;
+  if (!damage) return undefined;
+  const out: Record<string, number> = {};
+  for (const [key, value] of Object.entries(damage)) {
+    let identifier: string | null = null;
+    if (key.includes("tower")) identifier = key.split("_").slice(3).join("_");
+    if (key.includes("rax")) identifier = key.split("_").slice(4).join("_");
+    if (key.includes("roshan")) identifier = "roshan";
+    if (key.includes("fort")) identifier = "fort";
+    if (key.includes("healers")) identifier = "shrine";
+    if (identifier) out[identifier] = (out[identifier] ?? 0) + value;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/** Short item key (e.g. "bfury") for lookup in purchase_time objects. */
+function shortItemKey(itemId: number): string | undefined {
+  const internal = getLocaleBundle("english").items[String(itemId)]?.internal;
+  return internal?.replace(/^item_/, "") ?? undefined;
+}
+
 /** Sort a {key: count} map descending and relabel keys via an async resolver. */
 async function labelCountMap(
   map: Record<string, number> | undefined,
@@ -294,10 +347,14 @@ async function enrichMatchPlayer(
   const radiantWin = p.radiant_win as boolean | undefined;
   const win = radiantWin != null && isRadiant != null ? radiantWin === isRadiant : undefined;
 
-  const items: (NameRef & { slot: number })[] = [];
+  const purchaseTime = (p.purchase_time ?? {}) as Record<string, number>;
+  const items: (NameRef & { slot: number; purchased_at?: string })[] = [];
   for (const slot of ITEM_SLOTS) {
     const ref = await itemRef(p[`item_${slot}`] as number, lang);
-    if (ref) items.push({ slot, ...ref });
+    if (ref) {
+      const key = ref.id != null ? shortItemKey(ref.id) : undefined;
+      items.push({ slot, ...ref, purchased_at: key && purchaseTime[key] != null ? formatDuration(purchaseTime[key]) : undefined });
+    }
   }
   const backpack: (NameRef & { slot: number })[] = [];
   for (const slot of BACKPACK_SLOTS) {
@@ -334,11 +391,26 @@ async function enrichMatchPlayer(
     net_worth: p.net_worth,
     last_hits: p.last_hits,
     denies: p.denies,
+    last_hits_at_10: Array.isArray(p.lh_t) ? (p.lh_t as number[])[10] : undefined,
+    denies_at_10: Array.isArray(p.dn_t) ? (p.dn_t as number[])[10] : undefined,
     gold_per_min: p.gold_per_min,
     xp_per_min: p.xp_per_min,
     hero_damage: p.hero_damage,
     hero_healing: p.hero_healing,
     tower_damage: p.tower_damage,
+    dead_time: p.life_state_dead != null ? formatDuration(p.life_state_dead as number) : undefined,
+    pings: p.pings,
+    rune_pickups: p.rune_pickups,
+    fantasy_points: fantasyPoints(p),
+    hero_kills: p.hero_kills,
+    lane_creep_kills: p.lane_kills,
+    neutral_kills: p.neutral_kills,
+    ancient_kills: p.ancient_kills,
+    courier_kills: p.courier_kills,
+    observer_ward_kills: p.observer_kills,
+    sentry_ward_kills: p.sentry_kills,
+    has_aghanims_scepter: p.aghanims_scepter ?? undefined,
+    has_aghanims_shard: p.aghanims_shard ?? undefined,
     lane: laneLabel(p.lane as number),
     lane_role: laneRoleLabel(p.lane_role as number),
     role: p.role,
@@ -361,7 +433,6 @@ async function enrichMatchPlayer(
     actions_per_min: p.actions_per_min,
     observer_purchases: p.purchase_ward_observer,
     sentry_purchases: p.purchase_ward_sentry,
-    neutral_kills: p.neutral_kills,
     items,
     backpack,
     neutral_item: neutral,
@@ -458,6 +529,7 @@ async function enrichMatchPlayer(
     out.damage_targets = p.damage ?? undefined;
   }
   if (includeBreakdown) {
+    out.objective_damage = objectiveDamage(p);
     out.gold_sources = await labelCountMap(p.gold_reasons as Record<string, number> | undefined, async (k) =>
       labelEnumKey(GOLD_REASON_LABELS, k),
     );
@@ -544,6 +616,31 @@ export async function enrichMatch(
       typeof native === "number" && native >= 1 && native <= 5
         ? native
         : officialPos[i] ?? heuristicPos[i];
+  });
+
+  // Lane results, same computation as the official Story tab (MatchStory LaneStory):
+  // per (side, lane) take the MAX gold_t[10] among non-roaming players, a >500
+  // difference decides the lane, closer than that is a draw. (The Laning tab's
+  // lineResults sums instead — both are official; this matches the narration.)
+  const laneBest: Record<string, number> = {};
+  for (const rp of rawPlayers) {
+    if (rp.lane == null || rp.is_roaming || !Array.isArray(rp.gold_t)) continue;
+    const gold = (rp.gold_t as number[])[10];
+    if (gold == null) continue;
+    const key = `${sideFromPlayerSlot(rp.player_slot ?? 0)}:${rp.lane}`;
+    laneBest[key] = Math.max(laneBest[key] ?? -Infinity, gold);
+  }
+  players.forEach((pl, i) => {
+    const rp = rawPlayers[i];
+    if (rp?.lane == null || rp.is_roaming) return;
+    const side = sideFromPlayerSlot(rp.player_slot ?? 0) === "radiant" ? "radiant" : "dire";
+    const enemy = side === "radiant" ? "dire" : "radiant";
+    const mine = laneBest[`${side}:${rp.lane}`];
+    const theirs = laneBest[`${enemy}:${rp.lane}`];
+    if (mine == null || theirs == null) return;
+    const diff = mine - theirs;
+    if (Math.abs(diff) <= 500) pl.lane_result = "draw";
+    else pl.lane_result = diff > 0 ? "won" : "lost";
   });
 
   // Losing-team gold swing, computed from the per-minute advantage array (pure math).
@@ -644,21 +741,29 @@ export async function enrichMatch(
   if (includeChat && Array.isArray(match.chat)) {
     out.chat = await Promise.all(
       (match.chat as Record<string, any>[]).map(async (c) => {
-        const entry: Record<string, unknown> = { time: formatDuration(c.time), type: c.type };
+        const entry: Record<string, unknown> = { time: formatDuration(c.time), type: c.type, spam: c.spam ?? undefined };
         if (c.type === "chatwheel") {
           // chatwheel keys are chat_wheel phrase ids when small; large ids are
           // cosmetics (sprays/stickers) with no phrase mapping — kept raw.
+          // Target: all_chat phrases broadcast to everyone, others are allies-only.
           let phrase: string | undefined;
+          let toAll: boolean | undefined;
           try {
             const wheel = await getChatWheel();
-            phrase = wheel[String(c.key)]?.message ?? wheel[String(c.key)]?.label;
+            const hit = wheel[String(c.key)];
+            phrase = hit?.message ?? hit?.label;
+            toAll = hit?.all_chat;
           } catch {
             /* keep raw */
           }
           entry.message = phrase ?? `chatwheel:${c.key}`;
+          // Official Chat.tsx: all_chat===true broadcasts to all, everything else
+          // (including unknown cosmetic ids) is allies-only.
+          entry.target = toAll === true ? "all" : "allies";
         } else {
           entry.player_slot = c.player_slot;
           entry.message = c.key;
+          entry.target = "all"; // typed text chat is always all-chat (odota/web Chat.tsx)
         }
         return entry;
       }),

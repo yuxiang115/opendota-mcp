@@ -403,6 +403,60 @@ console.log("\n■ Regression K — official position port, firstblood resolutio
 }
 
 // ─────────────────────────────────────────────────────────────
+console.log("\n■ Regression L — website-parity enrichments (fantasy/lane win/purchase time/chat target)");
+{
+  const g10 = Array.from({ length: 13 }, (_, i) => (i + 1) * 100); // gold_t[10] = 1100
+  const mkP = (slot, lane, goldTen, extra = {}) => ({
+    player_slot: slot, account_id: 3000 + slot, personaname: `w${slot}`, hero_id: 1,
+    lane, kills: 10, deaths: 7, assists: 5, level: 25, radiant_win: true, last_hits: 136, denies: 1,
+    gold_per_min: 1054, teamfight_participation: 0.6, obs_placed: 1, camps_stacked: 0,
+    rune_pickups: 1, firstblood_claimed: 0, stuns: 0, towers_killed: 0, roshans_killed: 0,
+    life_state_dead: 265, pings: 7, lane_kills: 40, ancient_kills: 2, observer_kills: 1,
+    aghanims_shard: true, item_0: 1, lh_t: Array.from({ length: 13 }, (_, i) => i * 11), dn_t: Array.from({ length: 13 }, () => 0),
+    purchase_time: { blink: 240 }, gold_t: Array.from({ length: 13 }, (_, i) => (i + 1) * (goldTen / 11)),
+    ...extra,
+  });
+  // Radiant lane1 1100/900 (max 1100) vs dire 400/300 (max 400) -> won by 700;
+  // lane3 radiant 500/600 (max 600) vs dire 1200/200 (max 1200) -> lost by 600.
+  const players = [
+    mkP(0, 1, 1100), mkP(1, 2, 1000), mkP(2, 3, 500), mkP(3, 1, 900), mkP(4, 3, 600),
+    mkP(128, 1, 400), mkP(129, 2, 300), mkP(130, 3, 1200), mkP(131, 1, 300), mkP(132, 3, 200),
+  ];
+  const match = {
+    match_id: 454545, radiant_win: true, radiant_score: 1, dire_score: 1, duration: 1500,
+    start_time: 1700000000, game_mode: 22, lobby_type: 7,
+    chat: [
+      { time: 60, type: "chat", key: "hello all", player_slot: 0 },
+      { time: 90, type: "chatwheel", key: "3", player_slot: 1 },
+    ],
+    players,
+  };
+  const mock = (await import("node:http")).createServer((req, res) => {
+    const path = req.url.replace(/^\/api/, "").split("?")[0];
+    res.setHeader("content-type", "application/json");
+    if (path === "/matches/454545") res.end(JSON.stringify(match));
+    else if (path === "/constants/chat_wheel") res.end(JSON.stringify({ 3: { id: 3, message: "Get Back!", all_chat: false } }));
+    else res.end("{}");
+  });
+  await new Promise((r) => mock.listen(0, "127.0.0.1", r));
+  const mc = await boot({ OPENDOTA_BASE_URL: `http://127.0.0.1:${mock.address().port}/api` });
+  const m = await call(mc, "get_match", { match_id: 454545, include: { chat: true } });
+  const pa = m.players[0];
+  ok("fantasy points match the official weights (8.97)", pa.fantasy_points === 8.97, pa.fantasy_points);
+  ok("dead time formatted", pa.dead_time === "04:25", pa.dead_time);
+  ok("pings and kill breakdown surfaced", pa.pings === 7 && pa.lane_creep_kills === 40 && pa.ancient_kills === 2 && pa.observer_ward_kills === 1);
+  ok("aghanims flags surfaced", pa.has_aghanims_shard === true && pa.has_aghanims_scepter === undefined);
+  ok("last hits/denies at 10 minutes", pa.last_hits_at_10 === 110 && pa.denies_at_10 === 0, `${pa.last_hits_at_10}/${pa.denies_at_10}`);
+  ok("item purchase time attached", pa.items?.[0]?.purchased_at === "04:00" && pa.items?.[0]?.name_en === "Blink Dagger", JSON.stringify(pa.items?.[0]));
+  ok("lane result: Story-tab max-gold@10 rule with draw threshold", m.players[0].lane_result === "won" && m.players[3].lane_result === "won" && m.players[8].lane_result === "lost" && m.players[2].lane_result === "lost" && m.players[9].lane_result === "won", [0,2,3,8,9].map(i => m.players[i].lane_result).join(","));
+  const [textMsg, wheelMsg] = m.chat;
+  ok("text chat targets all", textMsg.target === "all" && textMsg.message === "hello all");
+  ok("chatwheel target from all_chat flag", wheelMsg.message === "Get Back!" && wheelMsg.target === "allies", JSON.stringify(wheelMsg));
+  await mc.close();
+  mock.close();
+}
+
+// ─────────────────────────────────────────────────────────────
 console.log(`\n═══ 结果: ${passed} passed, ${failed} failed ═══`);
 if (failures.length) {
   console.log("Failures:");
