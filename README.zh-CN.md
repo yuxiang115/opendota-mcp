@@ -124,8 +124,18 @@ docker compose up -d --build  # 在 127.0.0.1:8787/mcp 提供 MCP Streamable HTT
 
 #### 对接 MCP 客户端
 
-每个客户端只需要两样东西：**URL**（`https://你的域名/mcp`）和你在 compose 里设
-的 **token**，以请求头发送：`Authorization: Bearer <你的 token>`。
+每个客户端只需要两样东西：**URL**（`https://你的域名/mcp`）和服务器管理员在
+compose 里设的**门禁 token**，以请求头发送：`Authorization: Bearer <token>`。
+它只管“谁能进门”，仅此而已。
+
+**自带配额（可选）**：默认所有调用者共享服务器的 OpenDota 限流和 STRATZ
+token。想用自己的凭证、不占用管理员配额，在客户端配置里加这两个头即可——
+服务器会按调用者自己的 key 计费：
+
+| 请求头 | 是什么 |
+|---|---|
+| `X-OpenDota-Key` | 你自己的 [OpenDota API key](https://www.opendota.com/api-keys)（免费 60/分钟 → 3000/分钟）。 |
+| `X-Stratz-Token` | 你自己的 [STRATZ token](https://stratz.com/api)——10 个分段/位置工具会为你的会话点亮，即使服务器没配。 |
 
 Claude Code：
 
@@ -142,7 +152,11 @@ Cursor / Claude Desktop / 任何支持 JSON 配置的 MCP 客户端：
     "opendota": {
       "type": "http",
       "url": "https://你的域名/mcp",
-      "headers": { "Authorization": "Bearer <你的 token>" }
+      "headers": {
+        "Authorization": "Bearer <你的 token>",
+        "X-OpenDota-Key": "<你自己的 OpenDota key，可选>",
+        "X-Stratz-Token": "<你自己的 STRATZ token，可选>"
+      }
     }
   }
 }

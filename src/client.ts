@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CACHE_TTL, OPENDEOTA_API_KEY, OPENDOTA_BASE_URL, RATE_LIMIT_PER_MINUTE, shouldSeedBundle } from "./config.js";
+import { sessionOpenDotaKey } from "./session.js";
 import { currentTrace, logUpstream } from "./telemetry.js";
 
 interface CacheEntry {
@@ -259,8 +260,11 @@ function buildUrl(path: string, query?: RequestOptions["query"]): string {
       }
     }
   }
-  if (OPENDEOTA_API_KEY) {
-    url.searchParams.set("api_key", OPENDEOTA_API_KEY);
+  // Caller's own key (HTTP header X-OpenDota-Key) wins over the operator's env
+  // key, so per-user deployments bill to each caller's quota.
+  const apiKey = sessionOpenDotaKey() ?? OPENDEOTA_API_KEY;
+  if (apiKey) {
+    url.searchParams.set("api_key", apiKey);
   }
   return url.toString();
 }

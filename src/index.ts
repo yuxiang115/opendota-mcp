@@ -40,6 +40,8 @@ import { LOG_TARGET, logBoot, logToolCall, newTraceId, traceStorage } from "./te
 import { registerPrompts } from "./prompts.js";
 import { STRATZ_ENABLED } from "./stratz.js";
 import { stratzTools } from "./tools/stratz.js";
+import { stratzAvailable } from "./stratz.js";
+import { sessionCreds, type SessionCreds } from "./session.js";
 import { createRequire } from "node:module";
 
 // Single source of truth: the package.json sitting next to dist/. Reading it at
@@ -47,17 +49,19 @@ import { createRequire } from "node:module";
 // every install shape (repo, npx cache, container deploy).
 const PACKAGE_VERSION: string = createRequire(import.meta.url)("../package.json").version;
 
-const allTools: ToolDef[] = [
-  ...systemTools,
-  ...matchTools,
-  ...playerTools,
-  ...heroTools,
-  ...teamTools,
-  ...proTools,
-  ...referenceTools,
-  ...scenarioTools,
-  ...(STRATZ_ENABLED ? stratzTools : []),
-];
+function toolsFor(includeStratz: boolean): ToolDef[] {
+  return [
+    ...systemTools,
+    ...matchTools,
+    ...playerTools,
+    ...heroTools,
+    ...teamTools,
+    ...proTools,
+    ...referenceTools,
+    ...scenarioTools,
+    ...(includeStratz ? stratzTools : []),
+  ];
+}
 
 const ctx: ToolContext = {
   defaultLanguage: normalizeLanguage(DEFAULT_LANGUAGE),
@@ -68,7 +72,9 @@ const ctx: ToolContext = {
  * instance for the process; HTTP mode creates one per session (SDK requirement
  * for stateful streamable-HTTP sessions).
  */
-function buildServer(): McpServer {
+function buildServer(opts: { includeStratz?: boolean } = {}): McpServer {
+  const includeStratz = opts.includeStratz ?? STRATZ_ENABLED;
+  const allTools = toolsFor(includeStratz);
   const server = new McpServer(
     { name: "opendota-mcp", version: PACKAGE_VERSION },
     {
@@ -90,7 +96,7 @@ function buildServer(): McpServer {
         "(7) ALWAYS use these tools for Dota data — never fetch api.opendota.com yourself (via exec/curl/" +
         "web tools): raw responses contain untranslated numeric ids, no caching, and burn the user's rate " +
         "limit. Everything the API offers is exposed here, already enriched and cached. " +
-        (STRATZ_ENABLED
+        (includeStratz
           ? "(8) Rank-bracket/position-split aggregates (get_matchups_by_rank, get_item_builds_by_rank, " +
             "get_talent_stats, get_skill_builds_by_rank, get_lane_matchups, get_draft_advice, get_hero_trend) come " +
             "from STRATZ with much larger samples than the OpenDota scenario tools — prefer them for " +
@@ -220,7 +226,7 @@ async function main(): Promise<void> {
     const transport = new StdioServerTransport();
     await buildServer().connect(transport);
     // Log to stderr only; stdout is reserved for the MCP protocol.
-    console.error(`opendota-mcp v${PACKAGE_VERSION} ready: ${allTools.length} tools, language=${ctx.defaultLanguage}`);
+    console.error(`opendota-mcp v${PACKAGE_VERSION} ready: ${toolsFor(STRATZ_ENABLED).length} tools, language=${ctx.defaultLanguage}`);
   }
 }
 
@@ -243,6 +249,12 @@ async function startHttpServer(): Promise<void> {
   const port = Number(process.env.PORT ?? 8787);
   const authToken = process.env.OPENDOTA_HTTP_TOKEN?.trim();
   const sessions = new Map<string, InstanceType<typeof StreamableHTTPServerTransport>>();
+
+  const header = (req: import("node:http").IncomingMessage, name: string): string | undefined => {
+    const v = req.headers[name];
+    const t = Array.isArray(v) ? v[0] : v;
+    return t && t.trim() ? t.trim() : undefined;
+  };
 
   const readBody = (req: import("node:http").IncomingMessage): Promise<unknown> =>
     new Promise((resolve, reject) => {
@@ -272,6 +284,12 @@ async function startHttpServer(): Promise<void> {
       res.end(JSON.stringify({ error: "not found — the MCP endpoint is POST /mcp" }));
       return;
     }
+    // Per-caller upstream credentials: bring-your-own-key so the caller's
+    // traffic bills to their OpenDota/STRATZ quota, not the operator's.
+    const creds: SessionCreds = {
+      openDotaKey: header(req, "x-opendota-key"),
+      stratzToken: header(req, "x-stratz-token"),
+    };
     if (authToken && req.headers.authorization !== `Bearer ${authToken}`) {
       res.writeHead(401, { "content-type": "application/json", "www-authenticate": 'Bearer realm="opendota-mcp"' });
       res.end(JSON.stringify({ error: "unauthorized — set Authorization: Bearer <OPENDOTA_HTTP_TOKEN>" }));
@@ -295,8 +313,10 @@ async function startHttpServer(): Promise<void> {
           transport.onclose = () => {
             if (transport!.sessionId) sessions.delete(transport!.sessionId);
           };
-          await buildServer().connect(transport);
-          await transport.handleRequest(req, res, body);
+          // STRATZ tools light up for this session when the caller brought
+          // their own token even if the server has none configured.
+          await buildServer({ includeStratz: stratzAvailable() || !!creds.stratzToken }).connect(transport);
+          await sessionCreds.run(creds, () => transport!.handleRequest(req, res, body));
           // The session id is only generated while handling the initialize
           // request, so the map entry has to be written afterwards.
           if (transport.sessionId && !sessions.has(transport.sessionId)) {
@@ -304,7 +324,7 @@ async function startHttpServer(): Promise<void> {
           }
           return;
         }
-        await transport.handleRequest(req, res, body);
+        await sessionCreds.run(creds, () => transport.handleRequest(req, res, body));
       } else if (req.method === "GET" || req.method === "DELETE") {
         const transport = sessionId ? sessions.get(sessionId) : undefined;
         if (!transport) {
@@ -312,7 +332,7 @@ async function startHttpServer(): Promise<void> {
           res.end(JSON.stringify({ error: `${req.method} requires a valid mcp-session-id header` }));
           return;
         }
-        await transport.handleRequest(req, res);
+        await sessionCreds.run(creds, () => transport.handleRequest(req, res));
       } else {
         res.writeHead(405, { allow: "GET, POST, DELETE" });
         res.end();
@@ -331,7 +351,7 @@ async function startHttpServer(): Promise<void> {
 
   await new Promise<void>((resolve) => httpServer.listen(port, "0.0.0.0", resolve));
   console.error(
-    `opendota-mcp v${PACKAGE_VERSION} ready (http): ${allTools.length} tools, listening on :${port}/mcp` +
+    `opendota-mcp v${PACKAGE_VERSION} ready (http): ${toolsFor(STRATZ_ENABLED).length} tools base (STRATZ tools light up per session), listening on :${port}/mcp` +
       `${authToken ? " (bearer auth on)" : " (NO auth token set — anyone reachable can use it)"}, language=${ctx.defaultLanguage}`,
   );
 }

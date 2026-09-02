@@ -146,8 +146,19 @@ docker compose up -d --build # MCP Streamable HTTP on 127.0.0.1:8787/mcp
 #### Connecting MCP clients
 
 Every client needs exactly two things: the **URL** (`https://your-host/mcp`)
-and the **token** you set in compose, sent as a header:
-`Authorization: Bearer <your token>`.
+and the **access token** the server operator set in compose, sent as a header:
+`Authorization: Bearer <token>`. That token is just the door key — it decides
+who may connect, nothing else.
+
+**Bring your own quota (optional)**: by default every caller shares the
+server's OpenDota rate limit and (if configured) its STRATZ token. To use
+your OWN credentials instead, add these headers to the client config — the
+server bills each request to the caller's keys:
+
+| Header | What it is |
+|---|---|
+| `X-OpenDota-Key` | Your [OpenDota API key](https://www.opendota.com/api-keys) (60/min free → 3000/min). |
+| `X-Stratz-Token` | Your [STRATZ token](https://stratz.com/api) — the 10 bracket/position tools light up for your session even if the server has none configured. |
 
 Claude Code:
 
@@ -163,7 +174,11 @@ Cursor / Claude Desktop / any MCP client with JSON config:
     "opendota": {
       "type": "http",
       "url": "https://your-host/mcp",
-      "headers": { "Authorization": "Bearer <your token>" }
+      "headers": {
+        "Authorization": "Bearer <your token>",
+        "X-OpenDota-Key": "<your own OpenDota key, optional>",
+        "X-Stratz-Token": "<your own STRATZ token, optional>"
+      }
     }
   }
 }
