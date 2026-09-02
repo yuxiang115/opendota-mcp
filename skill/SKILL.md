@@ -15,6 +15,19 @@ description: Analyze Dota 2 matches, players, heroes, and the current meta throu
 
 ## 常用工作流
 
+### 教练级 BP/阵容建议（"这把怎么打"）
+```
+0. 问清用户分段和已选英雄（阵容建议必须带 bracket）
+1. get_draft_composition(team, enemy, bracket) → 伤害构成/控制集中度/续航差/前后期窗口 + coach_notes
+2. get_draft_advice(enemy, ally, bracket) → 反制推荐（克制数+对位胜率+队友协同）
+3. 英雄细节三件套（推荐英雄或用户主英雄）:
+   get_hero_position_stats（打几号位最好）→ get_skill_builds_by_rank（几级点/满）→
+   get_item_builds_by_rank + get_item_winrate_vs_hero（出装时间线+对位特化）
+4. get_lane_matchups（对线难易）+ get_talent_stats（天赋胜率）
+5. 综合：窗口期打法（30分钟前避战/抢节奏）、ban 建议（控制集中度>50%的英雄）、
+   针对装（对面魔法>70% → Pipe/BKB；续航强 → 大骨灰/希瓦）
+```
+
 ### 比赛复盘（"为什么输"）
 ```
 get_match(match_id, include={picks_bans, graphs})

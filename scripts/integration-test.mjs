@@ -719,6 +719,17 @@ console.log("\n■ Regression R — STRATZ provider (bracket/position aggregates
       res.end(JSON.stringify([{ id: 60, name: "7.41" }]));
       return;
     }
+    if (p === "/api/heroes/44/durations" || p === "/api/heroes/36/durations") {
+      const h44 = p.includes("/44/");
+      res.end(
+        JSON.stringify(
+          h44
+            ? [{ duration_bin: 1500, games_played: 100, wins: 60 }, { duration_bin: 2400, games_played: 100, wins: 50 }, { duration_bin: 3300, games_played: 100, wins: 40 }]
+            : [{ duration_bin: 1500, games_played: 100, wins: 45 }, { duration_bin: 2400, games_played: 100, wins: 50 }, { duration_bin: 3300, games_played: 100, wins: 55 }],
+        ),
+      );
+      return;
+    }
     if (p === "/graphql") {
       let body = "";
       req.on("data", (c) => (body += c));
@@ -749,6 +760,20 @@ console.log("\n■ Regression R — STRATZ provider (bracket/position aggregates
         } else if (q.includes("gameVersions")) {
           res.end(JSON.stringify({ data: { constants: { gameVersions: [{ id: 200, name: "7.99" }, { id: 199, name: "7.98" }] } } }));
           return;
+        } else if (q.includes("groupByPosition")) {
+          send({
+            stats: [
+              { heroId: 44, position: "POSITION_1", matchCount: 1000, winCount: 550, level: 22, kills: 9, deaths: 5, assists: 7, heroDamage: 19000, physicalDamage: 18000, magicalDamage: 30, towerDamage: 3900, campsStacked: 0.6 },
+              { heroId: 44, position: "POSITION_4", matchCount: 50, winCount: 15, level: 18, kills: 6, deaths: 9, assists: 11, heroDamage: 13000, physicalDamage: 12000, magicalDamage: 46, towerDamage: 970, campsStacked: 0.5 },
+            ],
+          });
+        } else if (q.includes("stats(heroIds")) {
+          send({
+            stats: [
+              { heroId: 44, matchCount: 11008, winCount: 5994, heroDamage: 19621, physicalDamage: 18250, magicalDamage: 27, towerDamage: 3874, disableDuration: 5, healingAllies: 0.1, networth: 20019 },
+              { heroId: 36, matchCount: 29993, winCount: 14788, heroDamage: 25205, physicalDamage: 2640, magicalDamage: 15792, towerDamage: 1495, disableDuration: 65, healingAllies: 4565, networth: 19493 },
+            ],
+          });
         } else if (q.includes("abilityMinLevel")) {
           res.end(
             JSON.stringify({
@@ -786,8 +811,8 @@ console.log("\n■ Regression R — STRATZ provider (bracket/position aggregates
     OPENDOTA_BUNDLE_PERSIST: "0",
   });
   const scTools = (await sc.listTools()).tools;
-  ok("STRATZ token → 59 tools incl. the 7 STRATZ tools", scTools.length === 59, `got ${scTools.length}`);
-  for (const n of ["get_matchups_by_rank", "get_item_builds_by_rank", "get_talent_stats", "get_lane_matchups", "get_draft_advice", "get_skill_builds_by_rank", "get_hero_trend"]) {
+  ok("STRATZ token → 61 tools incl. the 9 STRATZ tools", scTools.length === 61, `got ${scTools.length}`);
+  for (const n of ["get_matchups_by_rank", "get_item_builds_by_rank", "get_talent_stats", "get_lane_matchups", "get_draft_advice", "get_skill_builds_by_rank", "get_hero_position_stats", "get_draft_composition", "get_hero_trend"]) {
     ok(`registers ${n}`, scTools.some((t) => t.name === n));
   }
 
@@ -846,6 +871,22 @@ console.log("\n■ Regression R — STRATZ provider (bracket/position aggregates
     head(dagger),
   );
   ok("skill builds: talents excluded from ability list", !sb.abilities?.some((a) => /phantom_assassin_4|talent/i.test(a.ability)), sb.abilities?.map((a) => a.ability).join(","));
+
+  const pos = await call(sc, "get_hero_position_stats", { hero: 44 });
+  ok(
+    "position stats: per-position WR + most played",
+    pos.most_played?.position === 1 && pos.most_played?.win_rate_pct === 55 && pos.positions?.[0]?.games === 1000,
+    head(pos.most_played),
+  );
+
+  const comp = await call(sc, "get_draft_composition", { team_heroes: [44], enemy_heroes: [36] });
+  ok("composition: enemy damage mix computed", comp.enemy?.totals?.magical_damage_pct === 86, JSON.stringify(comp.enemy?.totals));
+  ok("composition: timing windows from duration curves", comp.yours?.totals?.late_win_rate_pct === 40 && comp.enemy?.totals?.late_win_rate_pct === 55, JSON.stringify(comp.yours?.totals));
+  ok(
+    "composition: coaching notes generated",
+    comp.coach_notes?.some((n) => /Pipe|BKB/.test(n)) && comp.coach_notes?.some((n) => /outscale|sustain|healing/i.test(n)),
+    head(comp.coach_notes),
+  );
 
   await sc.close();
 

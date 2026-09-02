@@ -87,6 +87,8 @@ backed by [STRATZ](https://stratz.com)'s GraphQL API with full-pool samples
 | `get_item_builds_by_rank` | Which items a hero buys at a bracket/position, average purchase minute, and win rate. |
 | `get_talent_stats` | Which talent choice actually wins, per bracket/position. |
 | `get_skill_builds_by_rank` | Skill builds per bracket/position: at what hero level each ability gets its first point and is maxed, with share + win rates. |
+| `get_hero_position_stats` | Per-position games, win rates and full per-game profile (K/D/A, damage, tower damage) — is the hero a 1 or a 4? |
+| `get_draft_composition` | **Coach-level lineup analysis**: damage mix, control concentration, sustain gap, early/mid/late windows for both teams + data-backed coaching notes. |
 | `get_lane_matchups` | Lane-phase outcomes (win/loss/draw) vs each opponent hero. |
 | `get_draft_advice` | Given the enemy lineup (+ your allies), ranks counter picks with per-enemy win rates and ally synergy. |
 | `get_hero_trend` | Win rate per patch (all 8 brackets supported) — is the hero still good after the nerf? |

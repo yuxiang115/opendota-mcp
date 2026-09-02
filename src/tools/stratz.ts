@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { apiGet } from "../client.js";
 import { getAbilityIds, getHeroAbilities } from "../constants.js";
 import { heroRef, itemRef, abilityRef } from "../mapping.js";
 import { getLocaleBundle } from "../locales.js";
@@ -46,6 +47,28 @@ function positionFilter(position?: string): string {
 
 function pct(wins: number, games: number): number {
   return games > 0 ? Math.round((wins / games) * 1000) / 10 : 0;
+}
+
+const round1 = (n?: number | null) => (n == null ? undefined : Math.round(n * 10) / 10);
+
+/** Row shape of the STRATZ `stats` aggregate query. */
+interface StatRow {
+  heroId?: number | null;
+  position?: string | null;
+  matchCount: number;
+  winCount: number;
+  level?: number | null;
+  kills?: number | null;
+  deaths?: number | null;
+  assists?: number | null;
+  heroDamage?: number | null;
+  physicalDamage?: number | null;
+  magicalDamage?: number | null;
+  towerDamage?: number | null;
+  disableDuration?: number | null;
+  healingAllies?: number | null;
+  networth?: number | null;
+  campsStacked?: number | null;
 }
 
 async function resolveHeroId(input: number | string, lang: string): Promise<number | { error: string; hint: string }> {
@@ -410,6 +433,174 @@ const rawStratzTools: ToolDef[] = [
     },
   },
   {
+    name: "get_draft_composition",
+    description:
+      "TEAM COMPOSITION analysis at coach level, from STRATZ per-hero aggregates + OpenDota duration curves: " +
+      "damage mix (physical vs magical share), control/healing/push distribution, gold dependency, and each " +
+      "lineup's early/mid/late win-rate windows, then data-backed coaching notes (e.g. 'enemy damage is 78% " +
+      "magical — Pipe/BKB priority', 'their control sits on one hero', 'you outscale them: avoid fights " +
+      "before 30 min'). Pair with get_draft_advice (counter picks) for full draft guidance. " +
+      "Sources: stratz.com + opendota durations; requires STRATZ_API_TOKEN.",
+    schema: {
+      team_heroes: z.array(heroArg).min(1).max(5).describe("Your lineup (hero ids or names)."),
+      enemy_heroes: z.array(heroArg).max(5).optional().describe("Enemy lineup, for comparison notes."),
+      bracket: bracketArg,
+      language: languageParam,
+    },
+    handler: async (args, ctx) => {
+      const lang = effectiveLanguage(args.language, ctx);
+      const resolveAll = async (list: (number | string)[]) => {
+        const ids: number[] = [];
+        for (const h of list) {
+          const id = await resolveHeroId(h, lang);
+          if (typeof id === "object") return id;
+          ids.push(id);
+        }
+        return ids;
+      };
+      const teamIds = await resolveAll(args.team_heroes);
+      if (!Array.isArray(teamIds)) return teamIds as unknown as { error: string; hint: string };
+      const enemyIds = args.enemy_heroes ? ((await resolveAll(args.enemy_heroes)) as number[]) : [];
+      if (args.enemy_heroes && !Array.isArray(enemyIds)) return enemyIds as unknown as { error: string; hint: string };
+      const allIds = [...teamIds, ...enemyIds];
+
+      const [statsResp, durationLists] = await Promise.all([
+        stratzQuery<{ heroStats: { stats: StatRow[] | undefined } }>(
+          "statsAggregate",
+          `query { heroStats { stats(heroIds: [${allIds.join(",")}]${bracketFilter(args.bracket)}) ` +
+            `{ heroId matchCount winCount heroDamage physicalDamage magicalDamage towerDamage disableDuration healingAllies networth } } }`,
+        ),
+        Promise.all(
+          allIds.map((id) =>
+            apiGet<{ duration_bin: number; games_played: number; wins: number }[]>(`/heroes/${id}/durations`, { ttl: "constants" }).catch(() => []),
+          ),
+        ),
+      ]);
+      const statById = new Map((statsResp?.heroStats?.stats ?? []).map((r) => [r.heroId ?? -1, r]));
+      const durById = new Map(allIds.map((id, i) => [id, durationLists[i] ?? []]));
+
+      const timing = (id: number) => {
+        const bins: Record<"early" | "mid" | "late", [number, number]> = { early: [0, 0], mid: [0, 0], late: [0, 0] };
+        for (const r of durById.get(id) ?? []) {
+          const m = r.duration_bin / 60;
+          const slot = m < 30 ? "early" : m <= 45 ? "mid" : "late";
+          bins[slot][0] += r.games_played;
+          bins[slot][1] += r.wins;
+        }
+        const out: Record<string, number> = {};
+        for (const slot of ["early", "mid", "late"] as const) {
+          const [g, w] = bins[slot];
+          if (g > 0) out[`${slot}_win_rate_pct`] = pct(w, g);
+        }
+        return out;
+      };
+
+      const compose = async (ids: number[]) => {
+        const rows = ids.map((id) => statById.get(id)).filter(Boolean) as StatRow[];
+        const sum = (f: (r: StatRow) => number | null | undefined) => rows.reduce((s, r) => s + (f(r) ?? 0), 0);
+        const physT = sum((r) => r.physicalDamage);
+        const magicT = sum((r) => r.magicalDamage);
+        const dmgT = physT + magicT || 1;
+        const controlT = sum((r) => r.disableDuration) || 1;
+        const healT = sum((r) => r.healingAllies);
+        const towerT = sum((r) => r.towerDamage) || 1;
+        const heroDmgT = sum((r) => r.heroDamage) || 1;
+        const heroes = await Promise.all(
+          ids.map(async (id) => {
+            const r = statById.get(id);
+            const name = (await heroRef(id, lang))?.name ?? `hero ${id}`;
+            const t = timing(id);
+            return {
+              hero: name,
+              ...(r ? { games: r.matchCount, win_rate_pct: pct(r.winCount, r.matchCount), ...sampleFields(r.matchCount, r.winCount) } : {}),
+              ...(r && (r.physicalDamage ?? 0) + (r.magicalDamage ?? 0) > 0
+                ? { damage_mix_pct: { physical: Math.round(((r.physicalDamage ?? 0) / ((r.physicalDamage ?? 0) + (r.magicalDamage ?? 0) || 1)) * 100), magical: Math.round(((r.magicalDamage ?? 0) / ((r.physicalDamage ?? 0) + (r.magicalDamage ?? 0) || 1)) * 100) } }
+                : {}),
+              share_of_team: {
+                hero_damage_pct: r ? Math.round(((r.heroDamage ?? 0) / heroDmgT) * 100) : undefined,
+                control_pct: r ? Math.round(((r.disableDuration ?? 0) / controlT) * 100) : undefined,
+                healing_pct: r ? Math.round(((r.healingAllies ?? 0) / (healT || 1)) * 100) : undefined,
+                tower_damage_pct: r ? Math.round(((r.towerDamage ?? 0) / towerT) * 100) : undefined,
+              },
+              ...(r?.networth != null ? { avg_networth: round1(r.networth) } : {}),
+              timing: t,
+            };
+          }),
+        );
+        const weighted = (slot: "early" | "mid" | "late") => {
+          let g = 0;
+          let w = 0;
+          for (const id of ids) {
+            for (const r of durById.get(id) ?? []) {
+              const m = r.duration_bin / 60;
+              if ((slot === "early" && m < 30) || (slot === "mid" && m >= 30 && m <= 45) || (slot === "late" && m > 45)) {
+                g += r.games_played;
+                w += r.wins;
+              }
+            }
+          }
+          return g > 0 ? pct(w, g) : undefined;
+        };
+        const controlShares = ids
+          .map((id) => ({ id, share: (statById.get(id)?.disableDuration ?? 0) / controlT }))
+          .sort((a, b) => b.share - a.share);
+        return {
+          heroes,
+          totals: {
+            physical_damage_pct: Math.round((physT / dmgT) * 100),
+            magical_damage_pct: Math.round((magicT / dmgT) * 100),
+            control_top1_pct: controlShares[0] ? Math.round(controlShares[0].share * 100) : undefined,
+            team_healing: round1(healT),
+            early_win_rate_pct: weighted("early"),
+            mid_win_rate_pct: weighted("mid"),
+            late_win_rate_pct: weighted("late"),
+          },
+          _topControlHero: controlShares[0]?.id,
+        };
+      };
+
+      const yours = await compose(teamIds);
+      const enemy = enemyIds.length ? await compose(enemyIds) : undefined;
+      const nameOf = async (id: number) => (await heroRef(id, lang))?.name ?? `hero ${id}`;
+
+      const notes: string[] = [];
+      const tgt = enemy ?? yours;
+      if (tgt.totals.magical_damage_pct >= 70)
+        notes.push(`${enemy ? "Enemy" : "Your"} damage is ${tgt.totals.magical_damage_pct}% magical — ${enemy ? "Pipe/BKB/immunity items are high priority for you" : "expect Pipe/BKB against you; consider physical damage sources"}.`);
+      if (tgt.totals.physical_damage_pct >= 70)
+        notes.push(`${enemy ? "Enemy" : "Your"} damage is ${tgt.totals.physical_damage_pct}% physical — ${enemy ? "armor/Blade Mail/Ghost Scepter gain value" : "expect armor stacking against you"}.`);
+      if ((tgt.totals.control_top1_pct ?? 0) >= 50 && tgt._topControlHero != null)
+        notes.push(`${enemy ? "Enemy" : "Your"} control is ${tgt.totals.control_top1_pct}% concentrated on one hero (${await nameOf(tgt._topControlHero)}) — ${enemy ? "banning/killing/focusing them in fights removes most of their setup" : "protect that hero's initiations"}.`);
+      if (enemy) {
+        const d = (a?: number, b?: number) => (a != null && b != null ? a - b : undefined);
+        const lateD = d(yours.totals.late_win_rate_pct, enemy.totals.late_win_rate_pct);
+        const earlyD = d(enemy.totals.early_win_rate_pct, yours.totals.early_win_rate_pct);
+        if (lateD != null && lateD >= 4)
+          notes.push(`You outscale them (late ${yours.totals.late_win_rate_pct}% vs ${enemy.totals.late_win_rate_pct}%) — avoid forced fights before 30 min, trade space for time.`);
+        else if (lateD != null && lateD <= -4)
+          notes.push(`They outscale you (late ${enemy.totals.late_win_rate_pct}% vs ${yours.totals.late_win_rate_pct}%) — force the tempo, end before 40 min, take early objectives.`);
+        if (earlyD != null && earlyD >= 4)
+          notes.push(`Enemy is strongest early (early ${enemy.totals.early_win_rate_pct}% vs ${yours.totals.early_win_rate_pct}%) — defensive wards, avoid early rotations, weather the storm.`);
+        const enemyHeal = enemy.totals.team_healing ?? 0;
+        const yourHeal = yours.totals.team_healing ?? 0;
+        if (enemyHeal > 1000 && yourHeal < enemyHeal / 5)
+          notes.push(`Enemy sustain is heavy (healing ${Math.round(enemyHeal)} vs your ${Math.round(yourHeal)}) — Spirit Vessel / Shiva's / burst damage gain a lot of value.`);
+      }
+      const nw = yours.heroes.map((h) => h.avg_networth ?? 0);
+      if (nw.length > 1 && Math.max(...nw) > 0 && Math.min(...nw) > 0 && Math.max(...nw) / Math.min(...nw) > 1.6)
+        notes.push(`Gold dependency is uneven (networth spread ${Math.round(Math.min(...nw))}-${Math.round(Math.max(...nw))}) — the low-income cores need space or cheap power spikes.`);
+
+      return {
+        bracket: args.bracket ? BRACKET_LABEL[args.bracket] : "all brackets",
+        yours: { heroes: yours.heroes, totals: yours.totals },
+        ...(enemy ? { enemy: { heroes: enemy.heroes, totals: enemy.totals } } : {}),
+        coach_notes: notes,
+        note: "Shares are within-lineup relative (STRATZ raw per-game values; absolute units undocumented). Timing windows use OpenDota duration curves, all brackets. Use get_draft_advice for counter picks on top of this.",
+        source: "stratz.com + opendota",
+      };
+    },
+  },
+  {
     name: "get_skill_builds_by_rank",
     description:
       "Skill build stats WITH RANK-BRACKET AND POSITION FILTER, from STRATZ: for each ability, at what " +
@@ -472,6 +663,56 @@ const rawStratzTools: ToolDef[] = [
         position: args.position ? `position ${args.position}` : "all positions",
         abilities: rows.filter((r) => r.first_point || r.maxed),
         note: "first_point = hero level when the ability gets its first skill point (dominant choice + share); maxed = hero level when it reaches its final level. Talents/facet skills are excluded — use get_talent_stats.",
+        source: "stratz.com",
+      };
+    },
+  },
+  {
+    name: "get_hero_position_stats",
+    description:
+      "Per-POSITION performance for a hero with rank-bracket filter, from STRATZ: games and win rate at " +
+      "each of positions 1-5 plus the full picture (avg K/D/A, level, hero/physical/magical damage, tower " +
+      "damage, camps stacked). Answers 'does PA work as a 2 or is she 1-only at my bracket' with real " +
+      "sample sizes. Source: stratz.com; requires STRATZ_API_TOKEN.",
+    schema: {
+      hero: heroArg,
+      bracket: bracketArg,
+      language: languageParam,
+    },
+    handler: async (args, ctx) => {
+      const lang = effectiveLanguage(args.language, ctx);
+      const heroId = await resolveHeroId(args.hero, lang);
+      if (typeof heroId === "object") return heroId;
+      const data = await stratzQuery<{ heroStats: { stats: StatRow[] | undefined } }>(
+        "statsByPosition",
+        `query { heroStats { stats(heroIds: [${heroId}]${bracketFilter(args.bracket)}, groupByPosition: true) ` +
+          `{ heroId position matchCount winCount level kills deaths assists heroDamage physicalDamage magicalDamage towerDamage campsStacked } } }`,
+      );
+      const rows = (data?.heroStats?.stats ?? [])
+        .filter((r) => r.position?.startsWith("POSITION_"))
+        .map((r) => ({
+          position: Number(r.position!.slice("POSITION_".length)),
+          games: r.matchCount,
+          win_rate_pct: pct(r.winCount, r.matchCount),
+          ...sampleFields(r.matchCount, r.winCount),
+          avg: {
+            level: round1(r.level),
+            kills: round1(r.kills),
+            deaths: round1(r.deaths),
+            assists: round1(r.assists),
+            hero_damage: round1(r.heroDamage),
+            tower_damage: round1(r.towerDamage),
+            camps_stacked: round1(r.campsStacked),
+          },
+        }))
+        .sort((a, b) => b.games - a.games);
+      const best = rows.slice().sort((a, b) => b.games * (b.win_rate_pct ?? 0) - a.games * (a.win_rate_pct ?? 0))[0];
+      return {
+        hero: (await heroRef(heroId, lang))?.name,
+        bracket: args.bracket ? BRACKET_LABEL[args.bracket] : "all brackets",
+        positions: rows,
+        ...(best ? { most_played: { position: best.position, win_rate_pct: best.win_rate_pct, games: best.games } } : {}),
+        note: "Averages are per game; damage fields are STRATZ raw values (use for within-hero comparison). Off-position samples are often tiny — check low_sample before judging.",
         source: "stratz.com",
       };
     },
