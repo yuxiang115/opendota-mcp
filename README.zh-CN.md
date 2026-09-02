@@ -110,12 +110,14 @@ OpenDota 的公开场景端点已不支持按天梯分段过滤，英雄对英�
 
 需要常驻共享服务器（远程 MCP 客户端接入，替代每台机器本地 stdio）时：
 
-1. clone 后直接在 `docker-compose.yml` 里改 token（无需 env 文件）：
+1. clone 后直接启动。所有配置都是可选的——不设就代表该功能关闭（开放接入、
+   服务器不留任何凭证）：
 
 ```bash
 git clone https://github.com/yuxiang115/opendota-mcp.git && cd opendota-mcp
-vim docker-compose.yml        # 把 OPENDOTA_HTTP_TOKEN 改成你自己的密钥
-docker compose up -d --build  # 在 127.0.0.1:8787/mcp 提供 MCP Streamable HTTP
+OPENDOTA_HTTP_TOKEN=$(openssl rand -hex 24) docker compose up -d --build
+# 或：echo "OPENDOTA_HTTP_TOKEN=..." > .env && docker compose up -d --build
+# 或什么都不设 -> 开放接入，调用者自带凭证
 ```
 
 2. 前置 nginx（或任意 TLS 代理）做 HTTPS —— 对 SSE 流关闭缓冲、调大读超时。
@@ -124,9 +126,9 @@ docker compose up -d --build  # 在 127.0.0.1:8787/mcp 提供 MCP Streamable HTT
 
 #### 对接 MCP 客户端
 
-每个客户端只需要两样东西：**URL**（`https://你的域名/mcp`）和服务器管理员在
-compose 里设的**门禁 token**，以请求头发送：`Authorization: Bearer <token>`。
-它只管“谁能进门”，仅此而已。
+每个客户端需要 **URL**（`https://你的域名/mcp`）。如果服务器管理员设了
+`OPENDOTA_HTTP_TOKEN`，还要在请求头带上：`Authorization: Bearer <token>`——
+它只管“谁能进门”，仅此而已。（服务器没设 = 开放接入，不需要这个头。）
 
 **自带配额（可选）**：默认所有调用者共享服务器的 OpenDota 限流和 STRATZ
 token。想用自己的凭证、不占用管理员配额，在客户端配置里加这两个头即可——

@@ -11,19 +11,21 @@ services:
       # Persists the endpoint disk cache (parsed matches, constants) across
       # container rebuilds.
       - opendota-cache:/data
+    # Every setting is optional and sourced from the shell (or a .env file in
+    # this directory — compose reads it automatically for ${VAR} substitution).
+    # Defaults below are EMPTY: a bring-your-own-credentials server.
     environment:
-      # ── Auth token: pick your own long random string and paste it here. ──
-      # MCP clients must send the same value as a header:
-      #   Authorization: Bearer <your token>
-      # See README "Connecting MCP clients" for copy-paste client configs.
-      - OPENDOTA_HTTP_TOKEN=CHANGE_ME_to_a_long_random_secret
-      # ── Optional: STRATZ bracket/position tools (free token from
-      #    https://stratz.com/api). Direct api.stratz.com access may be
-      #    blocked by Cloudflare in some networks — a curl-relay base URL
-      #    works too.
-      # - STRATZ_API_TOKEN=
+      # Access gate: set a secret to require `Authorization: Bearer <secret>`
+      # on every request; leave unset for open access.
+      - OPENDOTA_HTTP_TOKEN=${OPENDOTA_HTTP_TOKEN:-}
+      # Operator's own upstream credentials — omit to make every caller use
+      # their own X-OpenDota-Key / X-Stratz-Token headers instead.
+      - OPENDOTA_API_KEY=${OPENDOTA_API_KEY:-}
+      - STRATZ_API_TOKEN=${STRATZ_API_TOKEN:-}
+      # Default name language (schinese, tchinese, russian, ...).
+      - OPENDOTA_LANGUAGE=${OPENDOTA_LANGUAGE:-english}
+      # Override the STRATZ endpoint (e.g. a relay) if direct access is
+      # Cloudflare-blocked from your network.
       # - STRATZ_BASE_URL=https://api.stratz.com/graphql
-      # ── Optional: default name language (schinese, tchinese, russian, ...)
-      # - OPENDOTA_LANGUAGE=schinese
 volumes:
   opendota-cache:

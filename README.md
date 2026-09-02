@@ -129,12 +129,14 @@ numbers honestly. STRATZ requests are cached (30 min) and rate-throttled.
 
 For a shared always-on server (remote MCP clients instead of per-host stdio):
 
-1. Clone and edit the token directly in `docker-compose.yml` (no env files):
+1. Clone and start. Every setting is optional — an unset value means the
+   feature is simply off (open access, no operator credentials):
 
 ```bash
 git clone https://github.com/yuxiang115/opendota-mcp.git && cd opendota-mcp
-$EDITOR docker-compose.yml   # set OPENDOTA_HTTP_TOKEN to your own secret
-docker compose up -d --build # MCP Streamable HTTP on 127.0.0.1:8787/mcp
+OPENDOTA_HTTP_TOKEN=$(openssl rand -hex 24) docker compose up -d --build
+# or: echo "OPENDOTA_HTTP_TOKEN=..." > .env && docker compose up -d --build
+# or nothing at all -> open access, callers bring their own credentials
 ```
 
 2. Put nginx (or any TLS proxy) in front for HTTPS — disable buffering and
@@ -145,10 +147,10 @@ docker compose up -d --build # MCP Streamable HTTP on 127.0.0.1:8787/mcp
 
 #### Connecting MCP clients
 
-Every client needs exactly two things: the **URL** (`https://your-host/mcp`)
-and the **access token** the server operator set in compose, sent as a header:
-`Authorization: Bearer <token>`. That token is just the door key — it decides
-who may connect, nothing else.
+Every client needs the **URL** (`https://your-host/mcp`). If the server
+operator set `OPENDOTA_HTTP_TOKEN`, also send it as a header:
+`Authorization: Bearer <token>` — that token is just the door key, it decides
+who may connect and nothing else. (No token configured = open access.)
 
 **Bring your own quota (optional)**: by default every caller shares the
 server's OpenDota rate limit and (if configured) its STRATZ token. To use
