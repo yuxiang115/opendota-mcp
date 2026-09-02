@@ -725,9 +725,11 @@ console.log("\n■ Regression R — STRATZ provider (bracket/position aggregates
         JSON.stringify({
           radiant_win: true,
           duration: 1800,
+          teamfights: [{ start: 600, end: 640, deaths: 2, players: [{ deaths: 1, gold_delta: 800, xp_delta: 300 }, { deaths: 1, gold_delta: -600, xp_delta: 0 }] }],
+          objectives: [{ time: 700, type: "CHAT_MESSAGE_ROSHAN_KILL", team: 2 }],
           players: [
             { hero_id: 44, player_slot: 0, account_id: 1234, personaname: "A", level: 20, kills: 8, deaths: 4, assists: 6, hero_damage: 19600, tower_damage: 3800, gold_per_min: 600, rank_tier: 65 },
-            { hero_id: 36, player_slot: 128, account_id: 7654321, personaname: "B", level: 16, kills: 3, deaths: 12, assists: 4, hero_damage: 25000, tower_damage: 1400, gold_per_min: 450, rank_tier: 65 },
+            { hero_id: 36, player_slot: 128, account_id: 7654321, personaname: "B", level: 16, kills: 3, deaths: 12, assists: 4, hero_damage: 25000, tower_damage: 1400, gold_per_min: 450, rank_tier: 65, damage: { npc_dota_hero_pudge: 5000, npc_dota_hero_medusa: 1000, illusion_npc_dota_hero_medusa: 9999, npc_dota_creep_badguys_melee: 3000 }, killed: { npc_dota_hero_pudge: 2 } },
           ],
         }),
       );
@@ -909,7 +911,13 @@ console.log("\n■ Regression R — STRATZ provider (bracket/position aggregates
     coach.players_vs_bracket_avg?.some((p) => p.account_id === 7654321 && p.focus === true && (p.vs_bracket_avg_pct?.deaths ?? 0) > 50),
     JSON.stringify(coach.players_vs_bracket_avg?.find((p) => p.account_id === 7654321)?.vs_bracket_avg_pct),
   );
-  ok("match coaching: timing verdict present", typeof coach.timing_verdict === "string" && coach.timing_verdict.length > 20, head(coach.timing_verdict));
+  ok("match coaching: timing verdict present", typeof coach.timing_verdict === "string" && coach.timing_verdict.length > 20, head(coach.timing_verdict));  ok(
+    "match coaching: damage targets resolved, illusions excluded",
+    coach.players_vs_bracket_avg?.some((p) => p.hero_damage_on?.top_targets?.[0]?.hero === "Pudge" && p.hero_damage_on.top_targets.every((t) => !/illusion/i.test(t.hero)) && p.hero_damage_on.total === 6000),
+    JSON.stringify(coach.players_vs_bracket_avg?.find((p) => p.account_id === 7654321)?.hero_damage_on),
+  );
+  ok("match coaching: decisive teamfight + roshan timeline", coach.decisive_teamfights?.[0]?.at_min === 10 && coach.objective_timeline?.roshans?.[0]?.team === "radiant", JSON.stringify(coach.decisive_teamfights));
+
 
   await sc.close();
 

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { apiGet } from "../client.js";
+import { enrichMatch } from "../enrich.js";
 import { getAbilityIds, getHeroAbilities } from "../constants.js";
 import { heroRef, itemRef, abilityRef } from "../mapping.js";
 import { getLocaleBundle, type SupportedLanguage } from "../locales.js";
@@ -669,8 +670,17 @@ const rawStratzTools: ToolDef[] = [
         tower_damage?: number;
         gold_per_min?: number;
         rank_tier?: number;
+        damage?: Record<string, number>;
+        killed?: Record<string, number>;
       }
-      const match = await apiGet<{ radiant_win?: boolean; duration?: number; players?: MPlayer[] }>(`/matches/${args.match_id}`, { ttl: "match" });
+      const match = await apiGet<{ radiant_win?: boolean; duration?: number; players?: MPlayer[]; teamfights?: Record<string, any>[]; objectives?: Record<string, any>[] }>(`/matches/${args.match_id}`, { ttl: "match" });
+      const parsed = match.teamfights != null || match.players?.[0]?.damage != null;
+      // Lane results / positions / participation come from the OpenDota enrichment pipeline.
+      const enriched = await enrichMatch(match as unknown as Record<string, any>, lang, {});
+      const ePlayers = (enriched.players ?? []) as Record<string, any>[];
+      const internalToHeroId = new Map(
+        Object.entries(getLocaleBundle("english").heroes).map(([id, h]) => [h.internal, Number(id)]),
+      );
       const players = match?.players ?? [];
       if (players.length < 2) {
         return { error: `Match ${args.match_id} has no player data (possibly too recent or invalid id).`, hint: "Verify with get_match first." };
@@ -696,14 +706,36 @@ const rawStratzTools: ToolDef[] = [
       const direLineup = await composeLineup(dire.map((p) => p.hero_id), statById, durById, lang);
       const notes = await lineupNotes(radiantLineup, direLineup, lang, "Radiant", "Dire");
 
-      // Player-by-player: actual numbers vs this bracket's per-hero averages.
+      // Player-by-player: actual numbers vs this bracket's per-hero averages,
+      // plus in-match detail from the parsed replay (damage targets, solo kills, lane, participation).
       const deltaPct = (actual: number | undefined, avg: number | null | undefined) =>
         actual != null && avg != null && avg > 0 ? Math.round(((actual - avg) / avg) * 1000) / 10 : undefined;
+      const heroTargetRows = async (map: Record<string, number> | undefined, label: string) => {
+        if (!map) return undefined;
+        const entries = Object.entries(map)
+          .filter(([k, v]) => k.startsWith("npc_dota_hero_") && !k.startsWith("illusion_") && v > 0)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 3);
+        if (!entries.length) return undefined;
+        const total = entries.reduce((s, [, v]) => s + v, 0);
+        return {
+          total: Object.entries(map).filter(([k]) => k.startsWith("npc_dota_hero_") && !k.startsWith("illusion_")).reduce((s, [, v]) => s + v, 0),
+          [label]: await Promise.all(
+            entries.map(async ([internal, v]) => ({
+              hero: (await heroRef(internalToHeroId.get(internal) ?? -1, lang))?.name ?? internal,
+              value: v,
+            })),
+          ),
+        };
+      };
       const perf = await Promise.all(
-        players.map(async (p) => {
+        players.map(async (p, i) => {
           const avg = statById.get(p.hero_id);
           const isRadiant = p.player_slot < 128;
           const win = match.radiant_win != null ? match.radiant_win === isRadiant : undefined;
+          const e = ePlayers[i] ?? {};
+          const dmg = await heroTargetRows(p.damage, "top_targets");
+          const kills = await heroTargetRows(p.killed, "solo_kills");
           return {
             player: p.personaname ?? `account ${p.account_id ?? "?"}`,
             ...(p.account_id ? { account_id: p.account_id } : {}),
@@ -715,6 +747,14 @@ const rawStratzTools: ToolDef[] = [
             deaths: p.deaths,
             assists: p.assists,
             gold_per_min: p.gold_per_min,
+            ...(e.lane_result ? { lane_result: e.lane_result } : {}),
+            ...(e.position ? { position: e.position } : {}),
+            ...(e.lane_efficiency_pct != null ? { lane_efficiency_pct: e.lane_efficiency_pct } : {}),
+            ...(e.teamfight_participation != null ? { teamfight_participation: e.teamfight_participation } : {}),
+            ...(e.towers_killed != null ? { towers_killed: e.towers_killed } : {}),
+            ...(e.roshans_killed != null ? { roshans_killed: e.roshans_killed } : {}),
+            ...(dmg ? { hero_damage_on: dmg } : {}),
+            ...(kills ? { kill_map: kills } : {}),
             vs_bracket_avg_pct: avg
               ? {
                   level: deltaPct(p.level, avg.level),
@@ -727,6 +767,43 @@ const rawStratzTools: ToolDef[] = [
           };
         }),
       );
+
+      // Decisive team fights: rank by net gold swing between the two sides.
+      const decisiveFights = (match.teamfights ?? [])
+        .map((tf) => {
+          let radiantGold = 0;
+          let direGold = 0;
+          const absent: string[] = [];
+          (tf.players ?? []).forEach((tp: Record<string, any>, idx: number) => {
+            const delta = Number(tp.gold_delta ?? 0);
+            if (players[idx]?.player_slot == null) return;
+            const isRadiant = players[idx].player_slot < 128;
+            if (isRadiant) radiantGold += delta;
+            else direGold += delta;
+            const participated = (tp.deaths ?? 0) > 0 || Math.abs(delta) > 0 || (tp.xp_delta ?? 0) !== 0;
+            if (!participated) absent.push(players[idx].hero_id.toString());
+          });
+          return { start: Number(tf.start ?? 0), end: Number(tf.end ?? 0), deaths: Number(tf.deaths ?? 0), radiant_net_gold: radiantGold - direGold, absentHeroIds: absent.map(Number) };
+        })
+        .sort((a, b) => Math.abs(b.radiant_net_gold) - Math.abs(a.radiant_net_gold))
+        .slice(0, 3)
+        .sort((a, b) => a.start - b.start);
+      const decisive_teamfights = await Promise.all(
+        decisiveFights.map(async (f) => ({
+          at_min: Math.round(f.start / 60),
+          lasted_s: f.end - f.start,
+          deaths: f.deaths,
+          net_gold_radiant: f.radiant_net_gold,
+          absent: await Promise.all(f.absentHeroIds.map(async (id) => (await heroRef(id, lang))?.name ?? `hero ${id}`)),
+        })),
+      );
+
+      // Objective timeline: roshans, first tower, first barracks.
+      const roshans = (match.objectives ?? [])
+        .filter((o) => o.type === "CHAT_MESSAGE_ROSHAN_KILL")
+        .map((o) => ({ at_min: Math.round(Number(o.time ?? 0) / 60), team: o.team === 2 ? "radiant" : o.team === 3 ? "dire" : `team ${o.team}` }));
+      const firstTower = (match.objectives ?? []).find((o) => o.type === "CHAT_MESSAGE_TOWER_KILL" && o.key == null);
+      const firstBarracks = (match.objectives ?? []).find((o) => o.type === "CHAT_MESSAGE_BARRACKS_KILL");
 
       // Timing verdict: where did the game end relative to each lineup's windows?
       const durationMin = match.duration ? Math.round(match.duration / 60) : undefined;
@@ -749,7 +826,19 @@ const rawStratzTools: ToolDef[] = [
         match_id: args.match_id,
         winner: match.radiant_win == null ? undefined : match.radiant_win ? "radiant" : "dire",
         duration_min: durationMin,
+        parsed,
         bracket: bracket ? `${BRACKET_LABEL[bracket]} (detected from player medals)` : "all brackets (match had no medal data)",
+        ...(enriched.losing_team_max_gold_lead != null ? { losing_team_max_gold_lead: enriched.losing_team_max_gold_lead } : {}),
+        ...(parsed
+          ? {
+              objective_timeline: {
+                ...(roshans.length ? { roshans } : {}),
+                ...(firstTower ? { first_tower_min: Math.round(Number(firstTower.time ?? 0) / 60) } : {}),
+                ...(firstBarracks ? { first_barracks_min: Math.round(Number(firstBarracks.time ?? 0) / 60) } : {}),
+              },
+              decisive_teamfights,
+            }
+          : { note_unparsed: "Match not parsed yet — no teamfight/objective/lane detail. Call request_match_parse then retry for the full report." }),
         lineups: {
           radiant: { heroes: radiantLineup.heroes, totals: radiantLineup.totals },
           dire: { heroes: direLineup.heroes, totals: direLineup.totals },
@@ -757,8 +846,8 @@ const rawStratzTools: ToolDef[] = [
         players_vs_bracket_avg: perf,
         ...(timing_verdict ? { timing_verdict } : {}),
         coach_notes: notes,
-        note: "vs_bracket_avg_pct compares this game's numbers with the bracket's per-game averages for that hero (negative = below bracket norm). For item post-mortems call get_item_winrate_vs_hero per questionable item; for fight/lane detail use get_match with include.",
-        source: "opendota match + stratz.com aggregates",
+        note: "vs_bracket_avg_pct compares this game's numbers with the bracket's per-game averages for that hero (negative = below bracket norm). hero_damage_on shows WHO each player's damage actually went to (illusions excluded) — check cores hit the enemy carry. For item post-mortems call get_item_winrate_vs_hero; for full fight logs use get_match with include.",
+        source: "opendota parsed match + stratz.com aggregates",
       };
     },
   },

@@ -20,8 +20,12 @@ description: Analyze Dota 2 matches, players, heroes, and the current meta throu
 1. get_match_coaching(match_id, focus_account_id=问的人) → 一键教练报告:
    阵容画像(伤害构成/控制集中/续航) + 每人 vs 分段基准(vs_bracket_avg_pct)
    + 时间窗判决(timing_verdict) + coach_notes
-2. 定责读数: vs_bracket_avg_pct 负值大的维度 = 该玩家低于分段常态的表现
-   (例: GPM 正但 tower_damage -100% → 发育好但零推进贡献)
+2. 定责读数:
+   - vs_bracket_avg_pct 负值大的维度 = 低于分段常态的表现
+     (例: GPM 正但 tower_damage -100% → 发育好但零推进贡献)
+   - hero_damage_on = 伤害打给了谁(幻象已排除): 核心的输出没碰到对面核心 → 火力分配问题
+   - decisive_teamfights + objective_timeline = 比赛真正翻在哪一波(净经济摆动排序)
+   - kill_map = 单杀图; lane_result + lane_efficiency_pct = 对线结论
 3. 深挖(按需):
    ├─ get_match(include={teamfights,objectives,graphs}) → 团战/转折点/对线细节
    ├─ get_item_winrate_vs_hero → 出装复盘("这局该不该出X vs 对面核心")
