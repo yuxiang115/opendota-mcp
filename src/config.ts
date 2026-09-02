@@ -20,8 +20,11 @@ export const RATE_LIMIT_PER_MINUTE = Number(
 
 /** Cache TTLs in milliseconds. */
 export const CACHE_TTL = {
-  /** Static-ish game constants: heroes/items/abilities lists, enums. */
-  constants: 24 * 60 * 60 * 1000,
+  /**
+   * Game constants (heroes/items/abilities/enums). Refreshed at most once per hour
+   * via stale-while-revalidate; tune with OPENDOTA_CONSTANTS_TTL_MINUTES.
+   */
+  constants: Number(process.env.OPENDOTA_CONSTANTS_TTL_MINUTES ?? 60) * 60 * 1000,
   /** Match records: immutable once parsed, but allow refresh window. */
   match: 10 * 60 * 1000,
   /** Rapidly changing listings. */

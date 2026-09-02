@@ -216,6 +216,43 @@ console.log("\n■ Regression G — default significant=0 keeps Turbo players vi
 }
 
 // ─────────────────────────────────────────────────────────────
+console.log("\n■ Regression H — constants stale-while-revalidate (1h TTL by default, tiny here)");
+{
+  const hits = {};
+  let heroPayloadVersion = 1;
+  const mock = (await import("node:http")).createServer((req, res) => {
+    const path = req.url.replace(/^\/api/, "").split("?")[0];
+    hits[path] = (hits[path] ?? 0) + 1;
+    res.setHeader("content-type", "application/json");
+    if (path === "/heroStats") {
+      res.end(JSON.stringify([{ hero_id: 1, localized_name: `Anti-Mage v${heroPayloadVersion}`, primary_attr: "agi", attack_type: "Melee", roles: [] }]));
+    } else {
+      res.end("{}");
+    }
+  });
+  await new Promise((r) => mock.listen(0, "127.0.0.1", r));
+  const port = mock.address().port;
+  // TTL 0.02 min = 1.2s so expiry happens within the test
+  const swr = await boot({ OPENDOTA_BASE_URL: `http://127.0.0.1:${port}/api`, OPENDOTA_CONSTANTS_TTL_MINUTES: "0.02", OPENDOTA_RATE_LIMIT: "1000" });
+  const first = await call(swr, "get_heroes", {});
+  ok("first fetch returns v1", first[0]?.name_en === "Anti-Mage v1", first[0]?.name_en);
+  const afterFirst = hits["/heroStats"];
+  await new Promise((r) => setTimeout(r, 1500)); // let the cache expire
+  heroPayloadVersion = 2;
+  const t0 = Date.now();
+  const stale = await call(swr, "get_heroes", {});
+  const ms = Date.now() - t0;
+  ok("expired entry served instantly (stale-while-revalidate)", ms < 250, `${ms}ms`);
+  ok("stale response is still coherent data", stale[0]?.name_en === "Anti-Mage v1", stale[0]?.name_en);
+  await new Promise((r) => setTimeout(r, 1500)); // background refresh completes
+  ok("background refresh hit upstream exactly once more", hits["/heroStats"] === afterFirst + 1, `${hits["/heroStats"]} vs ${afterFirst}+1`);
+  const fresh = await call(swr, "get_heroes", {});
+  ok("next call sees refreshed data", fresh[0]?.name_en === "Anti-Mage v2", fresh[0]?.name_en);
+  await swr.close();
+  mock.close();
+}
+
+// ─────────────────────────────────────────────────────────────
 console.log(`\n═══ 结果: ${passed} passed, ${failed} failed ═══`);
 if (failures.length) {
   console.log("Failures:");

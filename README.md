@@ -200,7 +200,7 @@ npm run smoke           # quick end-to-end pass with real API calls
 npm run check           # typecheck only
 ```
 
-Game constants are cached in memory (24h TTL) and persisted under the OS tmpdir (`opendota-mcp-cache/`), so server restarts don't re-fetch them.
+Game constants are cached in memory and persisted under the OS tmpdir (`opendota-mcp-cache/`), so server restarts don't re-fetch them. They refresh at most once per hour using stale-while-revalidate (stale data is served instantly while a refresh runs in the background) — tune with `OPENDOTA_CONSTANTS_TTL_MINUTES`.
 
 Project layout:
 

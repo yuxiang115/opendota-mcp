@@ -5,9 +5,13 @@ import path from "node:path";
 import { CACHE_TTL, OPENDEOTA_API_KEY, OPENDOTA_BASE_URL, RATE_LIMIT_PER_MINUTE } from "./config.js";
 
 interface CacheEntry {
+  /** Disk format version: old entries with a different TTL policy are ignored. */
+  v?: number;
   expiresAt: number;
   data: unknown;
 }
+
+const DISK_CACHE_VERSION = 2;
 
 const cache = new Map<string, CacheEntry>();
 
@@ -30,7 +34,21 @@ function readDiskCache(cacheKey: string): CacheEntry | undefined {
     const file = diskFile(cacheKey);
     if (!existsSync(file)) return undefined;
     const entry = JSON.parse(readFileSync(file, "utf8")) as CacheEntry;
-    return entry?.expiresAt > Date.now() ? entry : undefined;
+    if (entry.v !== DISK_CACHE_VERSION) return undefined;
+    return entry.expiresAt > Date.now() ? entry : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Like readDiskCache but returns the entry regardless of age (for stale-while-revalidate). */
+function readDiskCacheAny(cacheKey: string): CacheEntry | undefined {
+  try {
+    const file = diskFile(cacheKey);
+    if (!existsSync(file)) return undefined;
+    const entry = JSON.parse(readFileSync(file, "utf8")) as CacheEntry;
+    if (entry.v !== DISK_CACHE_VERSION) return undefined;
+    return entry;
   } catch {
     return undefined;
   }
@@ -39,7 +57,7 @@ function readDiskCache(cacheKey: string): CacheEntry | undefined {
 function writeDiskCache(cacheKey: string, entry: CacheEntry): void {
   try {
     mkdirSync(DISK_DIR, { recursive: true });
-    writeFileSync(diskFile(cacheKey), JSON.stringify(entry));
+    writeFileSync(diskFile(cacheKey), JSON.stringify({ ...entry, v: DISK_CACHE_VERSION }));
   } catch {
     /* disk cache is best-effort */
   }
@@ -105,6 +123,8 @@ export interface RequestOptions {
   rateCost?: number;
   /** Return the parsed body even on non-2xx status (e.g. /health reports status via HTTP 500). */
   allowErrorStatus?: boolean;
+  /** Internal: bypass cache reads (used by the stale-while-revalidate background refresh). */
+  forceRefresh?: boolean;
 }
 
 function buildUrl(path: string, query?: RequestOptions["query"]): string {
@@ -135,7 +155,7 @@ export async function apiGet<T>(path: string, options: RequestOptions = {}): Pro
   const url = buildUrl(path, options.query);
   const cacheKey = `${method} ${url}`;
 
-  if (method === "GET" && !options.noCache) {
+  if (method === "GET" && !options.noCache && !options.forceRefresh) {
     const hit = cache.get(cacheKey);
     if (hit && hit.expiresAt > Date.now()) {
       return hit.data as T;
@@ -145,6 +165,13 @@ export async function apiGet<T>(path: string, options: RequestOptions = {}): Pro
       if (diskHit) {
         cache.set(cacheKey, diskHit);
         return diskHit.data as T;
+      }
+      // Stale-while-revalidate: constants change rarely, so serve any-age entry
+      // instantly and refresh in the background (rate-limited to one per key).
+      triggerBackgroundRefresh(path, options);
+      const stale = hit ?? readDiskCacheAny(cacheKey);
+      if (stale) {
+        return stale.data as T;
       }
     }
     const pending = inflight.get(cacheKey);
@@ -222,4 +249,14 @@ export async function apiGet<T>(path: string, options: RequestOptions = {}): Pro
 
 export function clearCache(): void {
   cache.clear();
+}
+
+/** Fire a cache-bypassing refresh for a stale constants key (no-op if one is already running). */
+function triggerBackgroundRefresh(path: string, options: RequestOptions): void {
+  const url = buildUrl(path, options.query);
+  const key = `${options.method ?? "GET"} ${url}`;
+  if (inflight.has(key)) return;
+  apiGet(path, { ...options, forceRefresh: true }).catch(() => {
+    /* keep serving stale data on refresh failure */
+  });
 }
