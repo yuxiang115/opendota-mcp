@@ -260,6 +260,7 @@ console.log("\n■ Regression I — position 1-5 estimation and log enrichment (
     lane, lane_role, gold_per_min: gpm, kills: 1, deaths: 1, assists: 1, level: 20,
     radiant_win: true, duration: 1500, start_time: 1700000000, game_mode: 22, lobby_type: 7,
     item_0: 1, kills_log: [{ time: 300, key: "npc_dota_hero_medusa" }], purchase_log: [{ time: 240, key: "bfury" }],
+    stuns: 2.5, teamfight_participation: 0.6, buyback_count: 1, towers_killed: 2,
     ...extra,
   });
   const match = {
@@ -271,10 +272,10 @@ console.log("\n■ Regression I — position 1-5 estimation and log enrichment (
       mk(2, 3, 3, 3, 930),    // off primary → pos3
       mk(3, 4, 1, 1, 923),    // safe secondary → pos4/5 by farm
       mk(4, 5, 3, 3, 868),    // off secondary → pos5
-      // Dire
-      mk(128, 6, 1, 3, 1054), // dire off primary → pos3
+      // Dire (128/130 carry native position_est, proving native beats the farm heuristic)
+      mk(128, 6, 1, 3, 1054, { position_est: 4 }),
       mk(129, 7, 2, 2, 1079), // mid → pos2
-      mk(130, 8, 1, 3, 879),  // dire off secondary → pos4
+      mk(130, 8, 1, 3, 879, { position_est: 3 }),
       mk(131, 9, 3, 1, 1080), // dire safe primary → pos1
       mk(132, 10, 3, 1, 523), // dire safe secondary → pos5
     ],
@@ -291,8 +292,9 @@ console.log("\n■ Regression I — position 1-5 estimation and log enrichment (
   const mc = await boot({ OPENDOTA_BASE_URL: `http://127.0.0.1:${port}/api`, OPENDOTA_LANGUAGE: "schinese" });
   const m = await call(mc, "get_match", { match_id: 424242, include: { player_logs: true } });
   const byName = (slot) => m.players.find((p) => p.player_slot === slot);
-  ok("radiant positions 1-5 assigned by lane + farm", [0, 1, 2, 3, 4].map((s) => byName(s).position).join("") === "12345");
-  ok("dire positions 1-5 assigned (safe primary pos1, off primary pos3)", [131, 129, 128, 130, 132].map((s) => byName(s).position).join("") === "12345");
+  ok("radiant positions 1-5 assigned by lane + farm (no native field)", [0, 1, 2, 3, 4].map((s) => byName(s).position).join("") === "12345");
+  ok("native position_est overrides the farm heuristic", [131, 129, 128, 130, 132].map((s) => byName(s).position).join("") === "12435", [131, 129, 128, 130, 132].map((s) => byName(s).position).join(""));
+  ok("analyst fields surfaced (stuns/teamfight/towers/buyback)", byName(0).stuns === 2.5 && byName(0).teamfight_participation === 0.6 && byName(0).towers_killed === 2 && byName(0).buyback_count === 1);
   ok("lane labels are side-aware", byName(128).lane === "bottom (off side)" && byName(131).lane === "top (safe side)", `${byName(128).lane} / ${byName(131).lane}`);
   ok("purchase_log entries carry item name and cost", byName(0).purchase_log?.[0]?.item === "狂战斧" && byName(0).purchase_log?.[0]?.cost === 4100, JSON.stringify(byName(0).purchase_log?.[0]));
   ok("kills_log victims resolved to hero names", byName(0).kills_log?.[0]?.victim?.name === "美杜莎", JSON.stringify(byName(0).kills_log?.[0]));

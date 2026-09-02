@@ -217,6 +217,18 @@ async function enrichMatchPlayer(p: RawPlayer, lang: SupportedLanguage, includeL
     role: p.role,
     is_roaming: p.is_roaming ?? undefined,
     lane_efficiency_pct: p.lane_efficiency_pct,
+    stuns: p.stuns,
+    teamfight_participation: p.teamfight_participation,
+    towers_killed: p.towers_killed,
+    roshans_killed: p.roshans_killed,
+    creeps_stacked: p.creeps_stacked,
+    camps_stacked: p.camps_stacked,
+    buyback_count: p.buyback_count,
+    firstblood_claimed: p.firstblood_claimed,
+    actions_per_min: p.actions_per_min,
+    observer_purchases: p.purchase_ward_observer,
+    sentry_purchases: p.purchase_ward_sentry,
+    neutral_kills: p.neutral_kills,
     items,
     backpack,
     neutral_item: neutral,
@@ -287,10 +299,14 @@ export async function enrichMatch(
   const players = Array.isArray(match.players)
     ? await Promise.all(match.players.map((p: RawPlayer) => enrichMatchPlayer(p, lang, includePlayerLogs, includeBenchmarks)))
     : [];
-  // Positions are a team-level property (farm order within lane groups), so attach after the per-player pass.
-  const positions = assignPositions(Array.isArray(match.players) ? (match.players as Record<string, any>[]) : []);
+  // Positions: prefer OpenDota's own position_est (behavior-based, available on parsed
+  // matches); the lane+farm heuristic only fills players without a native estimate.
+  const rawPlayers = (Array.isArray(match.players) ? match.players : []) as Record<string, any>[];
+  const positions = assignPositions(rawPlayers);
   players.forEach((pl, i) => {
-    if (positions[i] != null) pl.position = positions[i];
+    const native = rawPlayers[i]?.position_est;
+    pl.position =
+      typeof native === "number" && native >= 1 && native <= 5 ? native : positions[i];
   });
 
   const out: Record<string, unknown> = {
