@@ -57,7 +57,15 @@ export const heroTools: ToolDef[] = [
       const lang = effectiveLanguage(args.language, ctx);
       const enriched = await Promise.all(rows.map((row) => enrichHeroStatRow(row, lang, args.raw === true)));
       const sorted = enriched.sort((a, b) => (b.overall_pick as number ?? 0) - (a.overall_pick as number ?? 0));
-      return args.top ? sorted.slice(0, args.top) : sorted;
+      const heroes = args.top ? sorted.slice(0, args.top) : sorted;
+      return {
+        heroes,
+        note:
+          "Brackets run LOW skill to HIGH: herald < guardian < crusader < archon < legend < ancient < divine < immortal " +
+          "(先锋<卫士<中军<统帅<传奇<万古流芳<超凡入圣<冠绝一世). ~50% is the neutral point (one side always wins); " +
+          "sustained >52-53% at a bracket means strong there, <48% weak. pro_* = professional matches; turbo_* = the " +
+          "fast casual mode (shorter games, faster gold — do not compare turbo numbers with ranked ones).",
+      };
     },
   },
   {
@@ -123,8 +131,9 @@ export const heroTools: ToolDef[] = [
         bracket_label: bracketLabel(args.bracket, lang) ?? "all public matches (no bracket filter)",
         benchmarks: data?.result,
         note:
-          "values are what the given percentile of players achieves (last hits @10 min, GPM, XPM, kills, ...); " +
-          "top brackets can be null upstream when the sample is sparse",
+          "Each percentile row = the value that percentage of players on this hero in this bracket falls BELOW: " +
+          "percentile 0.9 means better than 90% of players on this hero (fields: last hits @10 min, GPM, XPM, kills, ...). " +
+          "Compare a player's actual value against these rows to say 'top X%'. Top brackets can be null upstream when the sample is sparse.",
       };
     },
   },
@@ -158,7 +167,14 @@ export const heroTools: ToolDef[] = [
       return rows.map((row) => {
         const games = (row.games_played ?? 0) as number;
         return {
-          duration_bin_minutes: row.duration_bin,
+          duration_bin: row.duration_bin != null ? `${Math.round((row.duration_bin as number) / 60)} min` : undefined,
+          duration_phase: row.duration_bin != null
+            ? (row.duration_bin as number) / 60 < 30
+              ? "early (<30 min)"
+              : (row.duration_bin as number) / 60 <= 45
+                ? "mid (30-45 min)"
+                : "late (>45 min)"
+            : undefined,
           games_played: games,
           wins: row.wins,
           win_rate_pct: games > 0 ? Math.round((row.wins / games) * 1000) / 10 : undefined,
@@ -206,6 +222,7 @@ export const heroTools: ToolDef[] = [
         personaname: row.personaname,
         rank_tier: rankTierToLabel(row.rank_tier, undefined, lang),
         steam_id: row.steamid,
+        top_pct: row.percent_rank != null ? Math.round((1 - (row.percent_rank as number)) * 1000) / 10 : undefined,
       }));
     },
   },

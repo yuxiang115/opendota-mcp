@@ -413,7 +413,7 @@ const rawStratzTools: ToolDef[] = [
         position: args.position ? `position ${args.position}` : "all positions",
         items: rows,
         note: "Repeated purchases (e.g. consumables) count every timing bucket; win rate is across games with a purchase of that item.",
-        source: "stratz.com",
+                source: "stratz.com",
       };
     },
   },
@@ -462,7 +462,10 @@ const rawStratzTools: ToolDef[] = [
         bracket: args.bracket ? bracketRangeLabel(args.bracket, lang) : bracketAllLabel(lang),
         position: args.position ? `position ${args.position}` : "all positions",
         talents: rows,
-        note: "Counts cover games where the talent was picked (both branches of a tier never sum to all games).",
+        note:
+          "Talents at the same level are a HEAD-TO-HEAD choice — compare the two rows' win_rate_pct and ci95_pp " +
+          "against each other (and against the hero's ~50% overall baseline). Counts cover games where that branch " +
+          "was picked (branches of a tier never sum to all games).",
         source: "stratz.com",
       };
     },

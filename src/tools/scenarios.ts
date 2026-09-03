@@ -49,6 +49,26 @@ async function resolveItemIdInput(input: number | string, lang = "english"): Pro
   return partial.length === 1 ? Number(partial[0][0]) : undefined;
 }
 
+
+/** Hero's overall public win rate from heroStats — the baseline scenario win
+ *  rates must be compared against ("52% vs baseline 49%" beats a bare "52%"). */
+async function heroOverallWinRate(heroId: number): Promise<number | undefined> {
+  try {
+    const rows = await apiGet<Record<string, any>[]>("/heroStats", { ttl: "aggregate" });
+    const row = rows?.find((r) => Number(r.hero_id ?? r.id) === heroId);
+    if (!row) return undefined;
+    let picks = 0;
+    let wins = 0;
+    for (let b = 1; b <= 8; b++) {
+      picks += Number(row[`${b}_pick`] ?? 0);
+      wins += Number(row[`${b}_win`] ?? 0);
+    }
+    return picks > 0 ? Math.round((wins / picks) * 1000) / 10 : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function winRate(wins: number, games: number): number {
   return Math.round((wins / games) * 1000) / 10;
 }
@@ -99,7 +119,16 @@ export const scenarioTools: ToolDef[] = [
             }),
         );
       }
-      return { hero_id: args.hero_id, min_games: minGames, timings: out };
+      return {
+        hero_id: args.hero_id,
+        min_games: minGames,
+        timings: out,
+        hero_overall_win_rate_pct: await heroOverallWinRate(args.hero_id),
+        note:
+          "Interpretation: compare each row against hero_overall_win_rate_pct — a timing only helps if its win " +
+          "rate beats the hero's overall rate, and rows are CORRELATION not causation (players who are ahead buy " +
+          "items earlier). Buckets are per purchase time; games counts are per item+bucket.",
+      };
     },
   },
   {
@@ -121,6 +150,7 @@ export const scenarioTools: ToolDef[] = [
       const minGames = args.min_games ?? 5;
       return {
         hero_id: args.hero_id,
+        hero_overall_win_rate_pct: await heroOverallWinRate(args.hero_id),
         rows: rows
           .filter((r) => r.games >= minGames)
           .sort((a, b) => a.time - b.time || b.games - a.games)
@@ -131,6 +161,9 @@ export const scenarioTools: ToolDef[] = [
             win_rate_pct: winRate(r.wins, r.games),
             ...sampleFields(r.games, r.wins),
           })),
+        note:
+          "Buckets are CUMULATIVE ('under 30 min' also contains the under-15 games) — do not add them up. " +
+          "Compare rows against hero_overall_win_rate_pct to say whether the hero wants fast or long games.",
       };
     },
   },
@@ -225,8 +258,12 @@ export const scenarioTools: ToolDef[] = [
         days,
         levels,
         total_parsed_games_sampled: totalGames,
-        builds,
-        note: "Sample = parsed public matches only; niche heroes may have few games.",
+        hero_overall_win_rate_pct: await heroOverallWinRate(args.hero_id),
+        builds: builds.map((b) => ({ ...b, ...sampleFields(b.games, Math.round((b.win_rate_pct * b.games) / 100)) })),
+        note:
+          "Sample = parsed public matches only; niche heroes may have few games. Builds with <100 games carry " +
+          "wide error bars (low_sample/ci95 fields) — never quote their win rates without the margin. Compare " +
+          "builds against each other AND against hero_overall_win_rate_pct.",
       };
     },
   },
@@ -433,8 +470,9 @@ export const scenarioTools: ToolDef[] = [
       "WHERE m.start_time > extract(epoch from now()) - 86400 GROUP BY 1 ORDER BY 2 DESC LIMIT 5.",
     schema: {
       sql: z.string().min(8).describe("SELECT query. Include LIMIT; writes are rejected server-side."),
+      language: languageParam,
     },
-    handler: async (args) => {
+    handler: async (args, ctx) => {
       const res = await apiGet<Record<string, any>>("/explorer", {
         query: { sql: args.sql },
         ttl: "aggregate",
@@ -444,7 +482,25 @@ export const scenarioTools: ToolDef[] = [
       const rows = (res?.rows ?? []) as Record<string, unknown>[];
       const rowCount = res?.rowCount ?? rows.length;
       const MAX_BYTES = 500 * 1024;
-      let payload = rows;
+      // Resolve hero-id columns to names so agents never meet a bare hero_id.
+      const heroRefLazy2 = (await import("../mapping.js")).heroRef;
+      const lang2 = effectiveLanguage(args.language, ctx);
+      const heroIdCols = [...new Set(rows.flatMap((r) => Object.keys(r).filter((k) => /(^|_)hero_id$/.test(k))))];
+      let payload = heroIdCols.length
+        ? await Promise.all(
+            rows.map(async (r) => {
+              const out = { ...r };
+              for (const col of heroIdCols) {
+                const id = Number(r[col]);
+                if (Number.isFinite(id) && id > 0) {
+                  const ref = await heroRefLazy2(id, lang2);
+                  out[col.replace(/_id$/, "")] = ref?.name ?? id;
+                }
+              }
+              return out;
+            }),
+          )
+        : rows;
       let truncated = false;
       if (JSON.stringify(rows).length > MAX_BYTES) {
         while (payload.length > 0 && JSON.stringify(payload).length > MAX_BYTES) payload = payload.slice(0, Math.floor(payload.length / 2));

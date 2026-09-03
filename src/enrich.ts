@@ -790,14 +790,23 @@ export async function enrichMatch(
         end: formatDuration(tf.end),
         last_death: formatDuration(tf.last_death),
         deaths: tf.deaths,
-        players: (tf.players ?? []).map((tp: any, i: number) => ({
-          player_index: i,
-          deaths: tp.deaths,
-          damage: tp.damage,
-          gold_delta: tp.gold_delta,
-          xp_delta: tp.xp_delta,
-          abilities_used: tp.abilities_used,
-        })),
+        players: await Promise.all(
+          ((tf.players ?? []) as Record<string, any>[]).map(async (tp, i) => {
+            const rp = rawPlayers[i];
+            const hero = rp ? await heroRef(rp.hero_id as number, lang) : undefined;
+            return {
+              player_index: i,
+              side: rp ? (sideFromPlayerSlot(rp.player_slot ?? 0) === "radiant" ? "radiant" : "dire") : undefined,
+              hero: hero?.name ?? (rp ? `hero ${rp.hero_id}` : undefined),
+              personaname: rp?.personaname,
+              deaths: tp.deaths,
+              damage: tp.damage,
+              gold_delta: tp.gold_delta,
+              xp_delta: tp.xp_delta,
+              abilities_used: tp.abilities_used,
+            };
+          }),
+        ),
       })),
     );
   }

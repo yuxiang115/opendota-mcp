@@ -145,7 +145,9 @@ console.log(`  → 出装示例: ${match.players[0].items.map((i) => i.name).joi
 // ─────────────────────────────────────────────────────────────
 console.log("\n■ Scenario D — hero meta (Russian localization)");
 const heroStats = await call(client, "get_hero_stats", {});
-const enriched = heroStats.find((h) => h.hero?.id === 1);
+const heroList = Array.isArray(heroStats) ? heroStats : heroStats.heroes;
+  const enriched = heroList.find((h) => h.hero?.id === 1);
+  ok("hero_stats wrapper carries bracket-order note", !Array.isArray(heroStats) && typeof heroStats.note === "string" && heroStats.note.includes("LOW skill to HIGH"));
 ok("hero stats carry hero ref + computed win rate", typeof enriched?.pro_win_rate_pct === "number" || "pro_win_rate_pct" in (enriched ?? {}), head(enriched?.pro_win_rate_pct));
 
 const ruHeroes = await call(client, "get_heroes", { language: "ru" });

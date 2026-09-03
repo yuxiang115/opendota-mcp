@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { apiGet } from "../client.js";
 import { getCountries } from "../constants.js";
+import { leaverStatusLabel } from "../mapping.js";
 import { gameModeName, heroRef, laneRoleLabel, lobbyTypeName, patchName, rankTierToLabel, regionName, enrichPlayerMatchRow, formatTimestamp } from "../mapping.js";
 import { sampleFields } from "../stats.js";
 import { effectiveLanguage, languageParam, playerFilterShape, toQuery, type ToolDef } from "./registry.js";
@@ -152,7 +153,17 @@ export const playerTools: ToolDef[] = [
           const hero = await heroRef(row.hero_id, lang);
           const games = (row.games ?? 0) as number;
           const win = (row.win ?? 0) as number;
-          return { ...row, hero, win_rate_pct: games > 0 ? Math.round((win / games) * 1000) / 10 : undefined };
+          const pct1 = (w: number, g: number) => (g > 0 ? Math.round((w / g) * 1000) / 10 : undefined);
+          const withGames = (row.with_games ?? 0) as number;
+          const againstGames = (row.against_games ?? 0) as number;
+          return {
+            ...row,
+            hero,
+            win_rate_pct: pct1(win, games),
+            with_win_rate_pct: pct1((row.with_win ?? 0) as number, withGames),
+            against_win_rate_pct: pct1((row.against_win ?? 0) as number, againstGames),
+            last_played: row.last_played != null ? formatTimestamp(row.last_played as number) : undefined,
+          };
         }),
       );
     },
@@ -460,7 +471,7 @@ export const playerTools: ToolDef[] = [
         return out;
       };
       return {
-        leaver_status: counts.leaver_status,
+        leaver_status: await resolveKeys(counts.leaver_status, (id) => Promise.resolve(leaverStatusLabel(id))),
         game_mode: await resolveKeys(counts.game_mode, gameModeName),
         lobby_type: await resolveKeys(counts.lobby_type, lobbyTypeName),
         lane_role: await resolveKeys(counts.lane_role, (id) => Promise.resolve(laneRoleLabel(id))),

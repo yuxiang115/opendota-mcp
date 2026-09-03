@@ -14,6 +14,7 @@ import {
   LEAVER_STATUS_LABELS,
   rankTierToLabel,
   SKILL_LABELS,
+  LANE_LABELS_I18N,
 } from "./constants.js";
 import { healResource } from "./client.js";
 
@@ -222,6 +223,16 @@ export async function enrichPlayerMatchRow(
   if (skill) out.skill = skill;
   const lane = laneRoleLabel(row.lane_role as number);
   if (lane) out.lane_role = lane;
+  // Absolute lane (1=Bot/下路, 2=Mid/中路, 3=Top/上路, 4/5=jungle) — localized so
+  // agents never quote raw enum numbers.
+  if (row.lane != null) {
+    const laneTable = LANE_LABELS_I18N[lang] ?? LANE_LABELS_I18N.english;
+    out.lane = laneTable[row.lane as number] ?? `lane ${row.lane}`;
+  }
+  const patch = await patchName(row.version as number);
+  if (patch) out.version = patch;
+  const region = await regionName(row.cluster as number);
+  if (region) out.cluster = region;
   const leaver = leaverStatusLabel(row.leaver_status as number);
   if (leaver) out.leaver_status = leaver;
   const avgRank = row.average_rank as number | undefined;
