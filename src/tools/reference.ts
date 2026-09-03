@@ -2,6 +2,7 @@ import { z } from "zod";
 import { apiGet } from "../client.js";
 import { heroLookupError, lookupHeroAlias } from "../aliases.js";
 import {
+  getItemIds,
   getAbilities,
   getHeroAbilities,
   getItems,
@@ -204,6 +205,12 @@ export const referenceTools: ToolDef[] = [
         if (itemId != null) {
           const localeEntry = englishNames[String(itemId)];
           internalKey = localeEntry?.internal?.replace(/^item_/, "") ?? internalKey;
+        }
+        // Internal-name lookups leave itemId null, which silently killed name
+        // localization below — backfill it from the id<->internal map.
+        if (itemId == null && internalKey) {
+          const byInternal = new Map(Object.entries(await getItemIds()).map(([id, internal]) => [String(internal), Number(id)]));
+          itemId = byInternal.get(internalKey) ?? byInternal.get(`item_${internalKey}`) ?? undefined;
         }
         const raw = internalKey ? (itemsTable[internalKey] as Record<string, any> | undefined) : undefined;
         if (!raw) {
