@@ -322,7 +322,8 @@ console.log("\n■ Regression I — position 1-5 estimation and log enrichment (
   ok("radiant positions 1-5 assigned by lane + farm (no native field)", [0, 1, 2, 3, 4].map((s) => byName(s).position).join("") === "12345");
   ok("native position_est overrides the farm heuristic", [131, 129, 128, 130, 132].map((s) => byName(s).position).join("") === "12435", [131, 129, 128, 130, 132].map((s) => byName(s).position).join(""));
   ok("analyst fields surfaced (stuns/teamfight/towers/buyback)", byName(0).stuns === 2.5 && byName(0).teamfight_participation === 0.6 && byName(0).towers_killed === 2 && byName(0).buyback_count === 1);
-  ok("lane labels are official (Bot/Mid/Top)", byName(128).lane === "Bot" && byName(131).lane === "Top", `${byName(128).lane} / ${byName(131).lane}`);
+  ok("lane labels localize (下路/上路 with schinese)", byName(128).lane === "下路" && byName(131).lane === "上路", `${byName(128).lane} / ${byName(131).lane}`);
+  ok("role_summary is self-explanatory and localized", typeof byName(0).role_summary === "string" && /号位/.test(byName(0).role_summary), byName(0).role_summary);
   ok(
   "purchase_log entries carry item name (cost varies by patch)",
   byName(0).purchase_log?.[0]?.item === "狂战斧" && typeof byName(0).purchase_log?.[0]?.cost === "number",

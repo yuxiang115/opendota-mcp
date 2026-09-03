@@ -11,6 +11,10 @@ import {
   GOLD_REASON_LABELS,
   KILL_STREAK_LABELS,
   LANE_LABELS,
+  LANE_LABELS_I18N,
+  LANE_ROLE_LABELS_I18N,
+  POSITION_ROLE_LABELS,
+  ROAMING_LABELS,
   MULTI_KILL_LABELS,
   OBJECTIVE_LABELS,
   RUNE_LABELS,
@@ -177,10 +181,11 @@ async function unitLabel(key: string, lang: SupportedLanguage): Promise<string> 
   return key.replace(/^npc_dota_/, "").replace(/_/g, " ");
 }
 
-/** Absolute lane — official labels (1=Bot, 2=Mid, 3=Top, 4/5=jungle variants). */
-function laneLabel(lane: number | undefined): string | undefined {
+/** Absolute lane — official labels (1=Bot, 2=Mid, 3=Top, 4/5=jungle variants), localized. */
+function laneLabel(lane: number | undefined, lang = "english"): string | undefined {
   if (lane == null) return undefined;
-  return LANE_LABELS[lane] ?? `lane ${lane}`;
+  const table = LANE_LABELS_I18N[lang] ?? LANE_LABELS_I18N.english;
+  return table[lane] ?? LANE_LABELS[lane] ?? `lane ${lane}`;
 }
 
 /**
@@ -413,7 +418,7 @@ async function enrichMatchPlayer(
     sentry_ward_kills: p.sentry_kills,
     has_aghanims_scepter: p.aghanims_scepter ?? undefined,
     has_aghanims_shard: p.aghanims_shard ?? undefined,
-    lane: laneLabel(p.lane as number),
+    lane: laneLabel(p.lane as number, lang),
     lane_role: laneRoleLabel(p.lane_role as number),
     role: p.role,
     is_roaming: p.is_roaming ?? undefined,
@@ -666,6 +671,21 @@ export async function enrichMatch(
   }
   players.forEach((pl, i) => {
     if (earlyRank[i] != null) pl.early_farm_rank = earlyRank[i];
+  });
+
+  // The self-explanatory line agents can quote verbatim: position + lane +
+  // roaming in one localized string, so nobody re-derives essays from enums.
+  players.forEach((pl, i) => {
+    const rp = rawPlayers[i];
+    if (pl.position == null) return;
+    const posTable = POSITION_ROLE_LABELS[lang] ?? POSITION_ROLE_LABELS.english;
+    const posNum = pl.position as number;
+    pl.position_label = posTable[posNum] ?? `Position ${posNum}`;
+    const roleTable = LANE_ROLE_LABELS_I18N[lang] ?? LANE_ROLE_LABELS_I18N.english;
+    const laneRoleNum = rp?.lane_role as number | null | undefined;
+    const laneName = laneRoleNum != null ? (roleTable[laneRoleNum] ?? laneRoleLabel(laneRoleNum)) : undefined;
+    const roam = rp?.is_roaming ? ROAMING_LABELS[lang] ?? ROAMING_LABELS.english : undefined;
+    pl.role_summary = [pl.position_label, laneName, roam].filter(Boolean).join(" · ");
   });
 
   // Lane results, same computation as the official Story tab (MatchStory LaneStory):

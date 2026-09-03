@@ -103,6 +103,33 @@ export const LANE_LABELS: Record<number, string> = {
   5: "Dire Jungle",
 };
 
+/**
+ * Self-explanatory position/lane wording so agents can QUOTE the answer
+ * ("4号位（辅助）· 中路 · 游走") instead of interpreting bare enums into essays.
+ * schinese/tchinese carry community-standard terms; other languages fall back
+ * to English.
+ */
+export const POSITION_ROLE_LABELS: Record<string, Record<number, string>> = {
+  english: { 1: "Position 1 (core)", 2: "Position 2 (core)", 3: "Position 3 (core)", 4: "Position 4 (support)", 5: "Position 5 (hard support)" },
+  schinese: { 1: "1号位（核心）", 2: "2号位（中单核心）", 3: "3号位（核心）", 4: "4号位（辅助）", 5: "5号位（辅助）" },
+  tchinese: { 1: "1號位（核心）", 2: "2號位（中路核心）", 3: "3號位（核心）", 4: "4號位（輔助）", 5: "5號位（輔助）" },
+};
+export const LANE_ROLE_LABELS_I18N: Record<string, Record<number, string>> = {
+  english: LANE_ROLE_LABELS,
+  schinese: { 0: "未知", 1: "优势路", 2: "中路", 3: "劣势路", 4: "野区" },
+  tchinese: { 0: "未知", 1: "優勢路", 2: "中路", 3: "劣勢路", 4: "野區" },
+};
+export const LANE_LABELS_I18N: Record<string, Record<number, string>> = {
+  english: LANE_LABELS,
+  schinese: { 1: "下路", 2: "中路", 3: "上路", 4: "天辉野区", 5: "夜魇野区" },
+  tchinese: { 1: "下路", 2: "中路", 3: "上路", 4: "天輝野區", 5: "夜魇野區" },
+};
+export const ROAMING_LABELS: Record<string, string> = {
+  english: "roaming",
+  schinese: "游走",
+  tchinese: "遊走",
+};
+
 /** Leaver statuses — labels from OpenDota's official frontend i18n. */
 export const LEAVER_STATUS_LABELS: Record<number, string> = {
   0: "None",
