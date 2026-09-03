@@ -1176,7 +1176,9 @@ console.log("\n■ Regression W — tiered cache: parsed matches are long-cached
 
 console.log("\n■ Y: player overview dashboard");
 {
-  const yClient = await boot({ OPENDOTA_LANGUAGE: "schinese" });
+if (!LIVE) {
+  console.log("  (skipped: live API required)");
+} else {  const yClient = await boot({ OPENDOTA_LANGUAGE: "schinese" });
   const ov = await call(yClient, "get_player_overview", { account_id: 48645517, language: "schinese", recent: 10 });
   ok("overview: player block with localized rank", typeof ov.player?.rank_tier === "string" && ov.player.rank_tier.length > 0, ov.player?.rank_tier);
   const firstMode = ov.volume?.by_mode?.[0]?.mode;
@@ -1186,6 +1188,7 @@ console.log("\n■ Y: player overview dashboard");
   ok("overview: lane distribution excludes unknown with coverage note", Array.isArray(ov.lane_distribution?.lanes) && ov.lane_distribution.lanes.every((l) => l.lane_role !== "Unknown") && typeof ov.lane_distribution.note === "string");
   ok("overview: context note guides drill-down", typeof ov.context_note === "string" && ov.context_note.includes("get_player_partnership"));
   await yClient.close();
+}
 }
 
 // ─────────────────────────────────────────────────────────────
