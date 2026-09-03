@@ -1,5 +1,5 @@
 {
-  "bundled_at": "2026-09-02T02:48:39.223Z",
+  "bundled_at": "2026-09-03T10:50:01.692Z",
   "max_patch_id": 60,
   "resources": [
     "heroes",
@@ -17,7 +17,5 @@
     "order_types",
     "hero_abilities",
     "countries"
-  ],
-  "last_probe_max_patch": 60,
-  "last_probe_at": "2026-09-03T03:59:49.593Z"
+  ]
 }
