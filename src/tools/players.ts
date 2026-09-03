@@ -98,7 +98,10 @@ export const playerTools: ToolDef[] = [
       const safe = <T,>(p: Promise<T>): Promise<T | undefined> => p.catch(() => undefined);
       const [profile, wl, heroes, counts, recent, peersRaw, ratings] = await Promise.all([
         safe(apiGet<Record<string, any>>(`/players/${id}`, { ttl: "player" })),
-        safe(apiGet<Record<string, any>>(`/players/${id}/wl`, { ttl: "player" })),
+        // significant=0 keeps volume on the same all-modes denominator as
+        // counts/by_mode below (OpenDota's default silently drops non-standard
+        // modes like Turbo, producing a total that contradicts by_mode).
+        safe(apiGet<Record<string, any>>(`/players/${id}/wl`, { query: { significant: 0 }, ttl: "player" })),
         safe(apiGet<Record<string, any>[]>(`/players/${id}/heroes`, { query: { significant: 0 }, ttl: "player" })),
         safe(apiGet<Record<string, any>>(`/players/${id}/counts`, { query: { significant: 0 }, ttl: "player" })),
         safe(apiGet<Record<string, any>[]>(`/players/${id}/recentMatches`, { ttl: "listing" })),
