@@ -12,6 +12,7 @@ import {
   KILL_STREAK_LABELS,
   LANE_LABELS,
   LANE_LABELS_I18N,
+  SIDE_LABELS_I18N,
   LANE_ROLE_LABELS_I18N,
   POSITION_ROLE_LABELS,
   ROAMING_LABELS,
@@ -589,6 +590,14 @@ async function enrichMatchPlayer(
  * Transform a raw OpenDota match object into a compact, human/LLM-readable view:
  * all hero/item/ability ids resolved to localized names, enums to labels.
  */
+/** Resolve parsed teamfight ability-id arrays to localized names. */
+async function resolveAbilityIds(ids: unknown, lang: SupportedLanguage): Promise<string[] | undefined> {
+  if (!Array.isArray(ids) || ids.length === 0) return undefined;
+  const { abilityRef } = await import("./mapping.js");
+  const names = await Promise.all(ids.map((a) => abilityRef(Number(a), lang)));
+  return names.map((n) => n?.name).filter((n): n is string => n != null);
+}
+
 export async function enrichMatch(
   match: Record<string, any>,
   lang: SupportedLanguage,
@@ -725,9 +734,11 @@ export async function enrichMatch(
     }
   }
 
+  const sideTable = SIDE_LABELS_I18N[lang] ?? SIDE_LABELS_I18N.english;
   const out: Record<string, unknown> = {
     match_id: match.match_id,
     radiant_win: match.radiant_win,
+    winner_side: match.radiant_win == null ? undefined : match.radiant_win ? sideTable.radiant : sideTable.dire,
     radiant_score: match.radiant_score,
     dire_score: match.dire_score,
     duration: formatDuration(match.duration),
@@ -796,14 +807,14 @@ export async function enrichMatch(
             const hero = rp ? await heroRef(rp.hero_id as number, lang) : undefined;
             return {
               player_index: i,
-              side: rp ? (sideFromPlayerSlot(rp.player_slot ?? 0) === "radiant" ? "radiant" : "dire") : undefined,
+              side: rp ? sideTable[sideFromPlayerSlot(rp.player_slot ?? 0) === "radiant" ? "radiant" : "dire"] : undefined,
               hero: hero?.name ?? (rp ? `hero ${rp.hero_id}` : undefined),
               personaname: rp?.personaname,
               deaths: tp.deaths,
               damage: tp.damage,
               gold_delta: tp.gold_delta,
               xp_delta: tp.xp_delta,
-              abilities_used: tp.abilities_used,
+              abilities_used: await resolveAbilityIds(tp.abilities_used, lang),
             };
           }),
         ),

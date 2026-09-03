@@ -188,7 +188,7 @@ try {
   const client3 = new Client({ name: "integration-test", version: "0.0.0" });
   await client3.connect(transport3);
   const t3 = await client3.listTools();
-  ok("npx-launched server lists tools", t3.tools.length === 54, `got ${t3.tools.length}`);
+  ok("npx-launched server lists tools", t3.tools.length === 55, `got ${t3.tools.length}`);
   const r3 = await call(client3, "search_dota_entities", { query: "斧王", language: "schinese" });
   ok("npx-launched server serves localized queries", r3.matches?.some((m) => m.name === "斧王"), head(r3.matches?.[0]));
   await client3.close();
@@ -870,7 +870,7 @@ console.log("\n■ Regression R — STRATZ provider (bracket/position aggregates
     OPENDOTA_BUNDLE_PERSIST: "0",
   });
   const scTools = (await sc.listTools()).tools;
-  ok("STRATZ token → 64 tools", scTools.length === 64, `got ${scTools.length}`);
+  ok("STRATZ token → 65 tools", scTools.length === 65, `got ${scTools.length}`);
   for (const n of ["get_matchups_by_rank", "get_item_builds_by_rank", "get_talent_stats", "get_lane_matchups", "get_draft_advice", "get_skill_builds_by_rank", "get_hero_position_stats", "get_draft_composition", "get_match_coaching", "get_hero_trend"]) {
     ok(`registers ${n}`, scTools.some((t) => t.name === n));
   }
@@ -1174,6 +1174,21 @@ console.log("\n■ Regression W — tiered cache: parsed matches are long-cached
   mock.close();
 }
 
+console.log("\n■ Y: player overview dashboard");
+{
+  const yClient = await boot({ OPENDOTA_LANGUAGE: "schinese" });
+  const ov = await call(yClient, "get_player_overview", { account_id: 48645517, language: "schinese", recent: 10 });
+  ok("overview: player block with localized rank", typeof ov.player?.rank_tier === "string" && ov.player.rank_tier.length > 0, ov.player?.rank_tier);
+  const firstMode = ov.volume?.by_mode?.[0]?.mode;
+  ok("overview: volume with named modes", ov.volume?.total_games > 0 && typeof firstMode === "string" && !/^\d+$/.test(firstMode), String(firstMode));
+  ok("overview: recent form computed", ov.recent_form?.window > 0 && typeof ov.recent_form.win_rate_pct === "number" && /^\d+[WL]$/.test(ov.recent_form.current_streak ?? ""), ov.recent_form?.current_streak);
+  ok("overview: hero pool with signature flags", Array.isArray(ov.hero_pool) && ov.hero_pool.length > 0 && typeof ov.hero_pool[0].games === "number" && typeof ov.hero_pool[0].signature === "boolean");
+  ok("overview: lane distribution excludes unknown with coverage note", Array.isArray(ov.lane_distribution?.lanes) && ov.lane_distribution.lanes.every((l) => l.lane_role !== "Unknown") && typeof ov.lane_distribution.note === "string");
+  ok("overview: context note guides drill-down", typeof ov.context_note === "string" && ov.context_note.includes("get_player_partnership"));
+  await yClient.close();
+}
+
+// ─────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────
 console.log("\n■ X: community nickname aliases (黑话)");
 {

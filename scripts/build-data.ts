@@ -115,7 +115,44 @@ async function fetchLanguage(lang: string) {
     // Some ids (e.g. recipe placeholders) repeat; keep the first occurrence.
     if (!target[String(e.id)]) target[String(e.id)] = entry;
   }
-  return { heroes, items, abilities };
+  const abilityDescriptions = await fetchAbilityDescriptions(lang);
+  return { heroes, items, abilities, abilityDescriptions };
+}
+
+const VPKR_BASE = "https://raw.githubusercontent.com/dotabuff/d2vpkr/master/dota/resource/localization";
+
+/**
+ * Localized ability descriptions from Valve's game files (mirrored by
+ * dotabuff/d2vpkr as abilities_<lang>.txt, VDF format). Keys look like
+ * DOTA_Tooltip_ability_<internal>_Description. English is skipped: OpenDota
+ * constants already provide English descriptions at runtime.
+ */
+async function fetchAbilityDescriptions(lang: string): Promise<Record<string, string>> {
+  if (lang === "english") return {};
+  let text: string;
+  try {
+    const res = await fetch(`${VPKR_BASE}/abilities_${lang}.txt`);
+    if (!res.ok) return {};
+    text = await res.text();
+  } catch {
+    return {};
+  }
+  const out: Record<string, string> = {};
+  // VDF: "DOTA_Tooltip_ability_<internal>_Description"  "text with \" escapes"
+  const re = /"DOTA_Tooltip_ability_([a-z0-9_]+?)_Description"\s+"((?:[^"\\]|\\.)*)"/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) != null) {
+    // Unescape VDF string escapes, strip %placeholder% tokens (actual numbers
+    // ship in the attributes list next to the description).
+    const desc = m[2]
+      .replace(/\\\\/g, "\\\\")
+      .replace(/\\"/g, '"')
+      .replace(/%[a-z0-9_]+%/gi, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (desc && !out[m[1]]) out[m[1]] = desc;
+  }
+  return out;
 }
 
 function writeTable(lang: string, table: string, data: Record<string, LocaleEntry>): number {
@@ -172,12 +209,20 @@ async function main() {
   let failures: string[] = [];
   for (const lang of LANGUAGES) {
     try {
-      const { heroes, items, abilities } = await fetchLanguage(lang);
+      const { heroes, items, abilities, abilityDescriptions } = await fetchLanguage(lang);
       if (Object.keys(heroes).length === 0) throw new Error("empty hero feed");
       const h = writeTable(lang, "heroes", heroes);
       const i = writeTable(lang, "items", items);
       const a = writeTable(lang, "abilities", abilities);
-      console.log(`✓ ${lang.padEnd(12)} heroes=${h} items=${i} abilities=${a}`);
+      // Descriptions are a plain string map (much bigger than name tables);
+      // written minified, skipped entirely when the language file is absent.
+      let dCount = 0;
+      if (Object.keys(abilityDescriptions).length > 0) {
+        const dir = path.join(LOCALES_DIR, lang);
+        writeFileSync(path.join(dir, "ability_descriptions.json"), JSON.stringify(abilityDescriptions), "utf8");
+        dCount = Object.keys(abilityDescriptions).length;
+      }
+      console.log(`✓ ${lang.padEnd(12)} heroes=${h} items=${i} abilities=${a} descriptions=${dCount}`);
     } catch (err) {
       failures.push(lang);
       console.error(`✗ ${lang}: ${err instanceof Error ? err.message : err}`);

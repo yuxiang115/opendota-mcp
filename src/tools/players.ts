@@ -79,6 +79,222 @@ export const playerTools: ToolDef[] = [
     },
   },
   {
+    name: "get_player_overview",
+    description:
+      "ONE-CALL player dashboard — the player's background context in a single response: profile + rank, " +
+      "lifetime volume and win rate, recent form (last 20: streak, averages, mode mix), hero pool with " +
+      "signature picks, lane-role distribution with win rates, top duo partners, and rank trend. " +
+      "Use this FIRST for any 'how is this player / 这玩家怎么样 / 战绩如何' question instead of assembling " +
+      "get_player + heroes + counts + recent matches yourself; the context_note says which tool drills deeper " +
+      "for each follow-up.",
+    schema: {
+      account_id: accountId,
+      recent: z.number().int().min(5).max(50).optional().describe("Recent-matches window size (default 20)."),
+      language: languageParam,
+    },
+    handler: async (args, ctx) => {
+      const lang = effectiveLanguage(args.language, ctx);
+      const id = args.account_id;
+      const safe = <T,>(p: Promise<T>): Promise<T | undefined> => p.catch(() => undefined);
+      const [profile, wl, heroes, counts, recent, peersRaw, ratings] = await Promise.all([
+        safe(apiGet<Record<string, any>>(`/players/${id}`, { ttl: "player" })),
+        safe(apiGet<Record<string, any>>(`/players/${id}/wl`, { ttl: "player" })),
+        safe(apiGet<Record<string, any>[]>(`/players/${id}/heroes`, { query: { significant: 0 }, ttl: "player" })),
+        safe(apiGet<Record<string, any>>(`/players/${id}/counts`, { query: { significant: 0 }, ttl: "player" })),
+        safe(apiGet<Record<string, any>[]>(`/players/${id}/recentMatches`, { ttl: "listing" })),
+        // peers endpoint mangles ?limit — page locally (see get_player_peers).
+        safe(apiGet<Record<string, any>[]>(`/players/${id}/peers`, { query: { significant: 0 }, ttl: "player" })),
+        safe(apiGet<Record<string, any>[]>(`/players/${id}/ratings`, { ttl: "player" })),
+      ]);
+
+      const pct1 = (w: number, g: number) => (g > 0 ? Math.round((w / g) * 1000) / 10 : undefined);
+
+      // ── profile & volume ──
+      const wins = Number(wl?.win ?? profile?.win ?? 0);
+      const losses = Number(wl?.lose ?? profile?.lose ?? 0);
+      const rank = profile?.rank_tier as number | undefined;
+      const overview: Record<string, unknown> = {
+        player: {
+          account_id: id,
+          personaname: profile?.profile?.personaname ?? profile?.personaname,
+          ...(profile?.profile?.loccountrycode ? { country: profile.profile.loccountrycode } : {}),
+          rank_tier: rankTierToLabel(rank, profile?.leaderboard_rank, lang),
+          mmr_estimate: profile?.mmr_estimate,
+        },
+        volume: {
+          total_games: wins + losses,
+          wins,
+          losses,
+          win_rate_pct: pct1(wins, wins + losses),
+        },
+      };
+
+      // ── mode mix (top modes by games) ──
+      if (counts?.game_mode) {
+        const modes = await Promise.all(
+          Object.entries(counts.game_mode as Record<string, { games: number; win: number }>).map(
+            async ([modeId, c]) => ({
+              mode: (await gameModeName(Number(modeId))) ?? `mode ${modeId}`,
+              games: c.games,
+              win_rate_pct: pct1(c.win, c.games),
+            }),
+          ),
+        );
+        modes.sort((a, b) => b.games - a.games);
+        (overview.volume as Record<string, unknown>).by_mode = modes;
+      }
+
+      // ── recent form ──
+      if (Array.isArray(recent) && recent.length > 0) {
+        const window = args.recent ?? 20;
+        const rows = [...recent]
+          .sort((a, b) => (b.start_time ?? 0) - (a.start_time ?? 0))
+          .slice(0, window);
+        let wins2 = 0;
+        let streakType: "W" | "L" | undefined;
+        let streakLen = 0;
+        const kdaAcc = [0, 0, 0];
+        let gpmAcc = 0;
+        let gpmN = 0;
+        let xpmAcc = 0;
+        let xpmN = 0;
+        let partySum = 0;
+        let partyGames = 0;
+        const heroCount = new Map<number, { games: number; wins: number; name?: string }>();
+        for (const m of rows) {
+          const isRadiant = (m.player_slot as number) < 128;
+          const win = m.radiant_win === isRadiant;
+          if (win) wins2++;
+          if (streakType == null) {
+            streakType = win ? "W" : "L";
+            streakLen = 1;
+          } else if ((streakType === "W") === win) streakLen++;
+          kdaAcc[0] += m.kills ?? 0;
+          kdaAcc[1] += m.deaths ?? 0;
+          kdaAcc[2] += m.assists ?? 0;
+          if (m.gold_per_min != null) {
+            gpmAcc += m.gold_per_min;
+            gpmN++;
+          }
+          if (m.xp_per_min != null) {
+            xpmAcc += m.xp_per_min;
+            xpmN++;
+          }
+          if (m.party_size != null) {
+            partySum += m.party_size;
+            partyGames++;
+          }
+          const h = heroCount.get(m.hero_id as number) ?? { games: 0, wins: 0 };
+          h.games++;
+          if (win) h.wins++;
+          heroCount.set(m.hero_id as number, h);
+        }
+        const recentHeroes = await Promise.all(
+          [...heroCount.entries()]
+            .sort((a, b) => b[1].games - a[1].games)
+            .slice(0, 5)
+            .map(async ([heroId, h]) => ({
+              hero: (await heroRef(heroId, lang))?.name ?? `hero ${heroId}`,
+              games: h.games,
+              win_rate_pct: pct1(h.wins, h.games),
+            })),
+        );
+        overview.recent_form = {
+          window: rows.length,
+          wins: wins2,
+          losses: rows.length - wins2,
+          win_rate_pct: pct1(wins2, rows.length),
+          current_streak: streakType ? `${streakLen}${streakType}` : undefined,
+          avg_kda: rows.length
+            ? Math.round(((kdaAcc[0] + kdaAcc[2]) / Math.max(kdaAcc[1], 1)) * 100) / 100
+            : undefined,
+          avg_gpm: gpmN ? Math.round(gpmAcc / gpmN) : undefined,
+          avg_xpm: xpmN ? Math.round(xpmAcc / xpmN) : undefined,
+          avg_party_size: partyGames ? Math.round((partySum / partyGames) * 10) / 10 : undefined,
+          top_heroes_in_window: recentHeroes,
+        };
+      }
+
+      // ── hero pool (lifetime) ──
+      if (Array.isArray(heroes) && heroes.length > 0) {
+        const pool = await Promise.all(
+          heroes.slice(0, 8).map(async (h) => {
+            const games = Number(h.games ?? 0);
+            const winRate = pct1(Number(h.win ?? 0), games);
+            return {
+              hero: (await heroRef(h.hero_id as number, lang))?.name ?? `hero ${h.hero_id}`,
+              games,
+              win_rate_pct: winRate,
+              with_win_rate_pct: pct1(Number(h.with_win ?? 0), Number(h.with_games ?? 0)),
+              last_played: h.last_played != null ? formatTimestamp(h.last_played as number) : undefined,
+              signature: games >= 100 && (winRate ?? 0) >= 55,
+            };
+          }),
+        );
+        overview.hero_pool = pool;
+      }
+
+      // ── lane distribution ──
+      if (counts?.lane_role) {
+        // lane_role 0 = no lane data (Turbo/unparsed) — excluded from the
+        // distribution, coverage reported instead of diluting the shares.
+        const entries = Object.entries(counts.lane_role as Record<string, { games: number; win: number }>)
+          .map(([lr, c]) => ({ lr: Number(lr), c }))
+          .filter(({ lr }) => lr >= 1);
+        const known = entries.reduce((s, e) => s + e.c.games, 0);
+        const unknown = Number((counts.lane_role as Record<string, { games: number }>)["0"]?.games ?? 0);
+        const lanes = await Promise.all(
+          entries
+            .sort((a, b) => b.c.games - a.c.games)
+            .map(async ({ lr, c }) => ({
+              lane_role: laneRoleLabel(lr),
+              games: c.games,
+              share_pct: known > 0 ? Math.round((c.games / known) * 1000) / 10 : undefined,
+              win_rate_pct: pct1(c.win, c.games),
+            })),
+        );
+        overview.lane_distribution = {
+          lanes,
+          note:
+            unknown > 0
+              ? `Shares are over ${known} matches WITH lane data (lane comes from replays); ${unknown} matches (Turbo/unparsed) carry none.`
+              : undefined,
+        };
+      }
+
+      // ── duo partners ──
+      if (Array.isArray(peersRaw) && peersRaw.length > 0) {
+        overview.duo_partners = (
+          await Promise.all(
+            peersRaw.slice(0, 3).map(async (p) => ({
+              name: p.personaname ?? `account ${p.account_id}`,
+              account_id: p.account_id,
+              games: p.with_games,
+              win_rate_pct: pct1(p.with_win ?? 0, p.with_games ?? 0),
+            })),
+          )
+        ).filter((p) => p.games > 0);
+      }
+
+      // ── rank trend ──
+      if (Array.isArray(ratings) && ratings.length > 0) {
+        overview.rank_trend = ratings
+          .slice(-6)
+          .reverse()
+          .map((r) => ({ time: formatTimestamp(r.time as number), rank_tier: rankTierToLabel(r.rank_tier as number, undefined, lang) }));
+      }
+
+      overview.context_note =
+        "Snapshot dashboard for orientation. Drill down with: get_player_matches (filters), get_player_heroes " +
+        "(full pool), get_player_peers/get_player_partnership (stack analysis), get_match_coaching (review one " +
+        "game), get_hero_rankings (leaderboard). recent_form window uses OpenDota's recentMatches feed — it can " +
+        "lag hours behind (Turbo especially); refresh_player forces an index update. Averages blend ALL modes — " +
+        "check volume.by_mode first: Turbo games run ~2/3 length with much higher GPM/XPM, so a Turbo-heavy window " +
+        "inflates them.";
+      return overview;
+    },
+  },
+  {
     name: "get_player_recent_matches",
     description:
       "Get a player's ~20 most recent matches (regardless of filters), enriched with hero names, win/loss, " +

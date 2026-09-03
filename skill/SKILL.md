@@ -15,6 +15,14 @@ description: Analyze Dota 2 matches, players, heroes, and the current meta throu
 
 ## 常用工作流
 
+### 玩家背景（"这玩家怎么样/战绩如何"）——先一键拿全貌
+```
+1. get_player_overview(account_id) → 档案/段位、总场次胜率、近期状态（连胜/均KDA/GPM/常玩英雄）、
+   英雄池（signature 标记绝活）、分路分布、开黑搭子，一次拿全
+2. 按需深挖：get_player_partnership（开黑）/ get_match_coaching（复盘）/ get_player_matches（筛选）
+```
+注意：recent 窗口混合所有模式（Turbo 局 GPM/XPM 显著偏高，先看 by_mode）。
+
 ### 赛后复盘（"这把为什么输"）——主场景
 ```
 1. get_match_coaching(match_id, focus_account_id=问的人) → 一键教练报告:

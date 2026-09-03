@@ -82,7 +82,7 @@ function buildServer(opts: { includeStratz?: boolean } = {}): McpServer {
         "Dota 2 data via the OpenDota API. HOW TO USE: " +
         "(1) Resolve any player/hero/item name first — search_players for accounts, search_dota_entities for " +
         "game entities (accepts any language, e.g. 敌法师, AND community nicknames like 火猫/大骨灰/BKB/PA; " +
-        "ambiguous nicknames like 猴子/ES return candidate heroes — ask the user which they mean, never guess). (2) Never guess account ids or describe " +
+        "ambiguous nicknames like 猴子/ES return candidate heroes — ask the user which they mean, never guess). For any 'how is this player' question call get_player_overview FIRST (one-call dashboard). (2) Never guess account ids or describe " +
         "abilities/items from memory — use get_hero_kit / get_item_details for authoritative current-patch data. " +
         "(3) For match analysis prefer the registered prompts (match-analysis, player-review, hero-guide, " +
         "meta-report) which encode the full playbook. (4) Unparsed matches return a note — call " +

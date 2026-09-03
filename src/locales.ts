@@ -170,6 +170,10 @@ interface LocaleBundle {
   heroes: Record<string, LocalizedEntry>;
   items: Record<string, LocalizedEntry>;
   abilities: Record<string, LocalizedEntry>;
+  /** Localized ability descriptions (Valve game files); absent for english
+   *  (runtime falls back to OpenDota's English text) and any language whose
+   *  file was unavailable at build time. */
+  abilityDescriptions?: Record<string, string>;
 }
 
 const bundleCache = new Map<string, LocaleBundle>();
@@ -192,6 +196,28 @@ function loadTable(lang: string, table: "heroes" | "items" | "abilities"): Recor
 }
 
 /** Get (and cache) the locale bundle for a language, falling back to english. */
+const descCache = new Map<string, Record<string, string> | undefined>();
+
+/** Localized ability descriptions for one language (Valve game files), loaded
+ *  on demand — name-table consumers (search fallbacks across all languages)
+ *  never pay the ~10x description cost. */
+export function getAbilityDescriptions(lang: string): Record<string, string> | undefined {
+  if (descCache.has(lang)) return descCache.get(lang);
+  const v = loadDescTableOnce(lang);
+  descCache.set(lang, v);
+  return v;
+}
+
+function loadDescTableOnce(lang: string): Record<string, string> | undefined {
+  try {
+    const file = path.join(LOCALES_DIR, lang, "ability_descriptions.json");
+    if (!existsSync(file)) return undefined;
+    return JSON.parse(readFileSync(file, "utf8")) as Record<string, string>;
+  } catch {
+    return undefined;
+  }
+}
+
 export function getLocaleBundle(lang: string): LocaleBundle {
   const bundled = new Set(listBundledLanguages());
   const target = bundled.has(lang) ? lang : "english";

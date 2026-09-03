@@ -8,7 +8,7 @@ import {
   getItems,
   type HeroFacet,
 } from "../constants.js";
-import { getLocaleBundle } from "../locales.js";
+import { getAbilityDescriptions, getLocaleBundle } from "../locales.js";
 import { heroRef, itemRef, type NameRef } from "../mapping.js";
 import { effectiveLanguage, languageParam, type ToolDef } from "./registry.js";
 
@@ -55,7 +55,10 @@ function toAbilityDetail(internal: string, raw: Record<string, any>, lang: strin
   const localEntry = Object.values(local).find((e) => e.internal === internal && e.name);
   if (localEntry) detail.name = localEntry.name;
   void english;
-  if (raw.desc) detail.description = String(raw.desc);
+  // Localized description from Valve's game files when the language has one;
+  // otherwise OpenDota's English text.
+  detail.description =
+    getAbilityDescriptions(lang)?.[internal] ?? (raw.desc ? String(raw.desc) : undefined);
   if (raw.mc) detail.mana_cost = String(raw.mc);
   if (raw.cd) detail.cooldown = String(raw.cd);
   if (raw.dmg_type) detail.damage_type = raw.dmg_type;

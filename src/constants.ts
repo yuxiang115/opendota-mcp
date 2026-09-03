@@ -124,6 +124,11 @@ export const LANE_LABELS_I18N: Record<string, Record<number, string>> = {
   schinese: { 1: "下路", 2: "中路", 3: "上路", 4: "天辉野区", 5: "夜魇野区" },
   tchinese: { 1: "下路", 2: "中路", 3: "上路", 4: "天輝野區", 5: "夜魇野區" },
 };
+export const SIDE_LABELS_I18N: Record<string, Record<string, string>> = {
+  english: { radiant: "Radiant", dire: "Dire" },
+  schinese: { radiant: "天辉", dire: "夜魇" },
+  tchinese: { radiant: "天輝", dire: "夜魇" },
+};
 export const ROAMING_LABELS: Record<string, string> = {
   english: "roaming",
   schinese: "游走",
