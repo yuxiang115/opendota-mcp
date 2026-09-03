@@ -630,6 +630,44 @@ export async function enrichMatch(
     }
   });
 
+  // Evidence for the position numbers: each player's minute-10-12 farm
+  // priority within their team (1 = most early farm) — the same window the
+  // official algorithm ranks on. Exposed so agents can EXPLAIN a position
+  // (e.g. a roamer estimated pos-4 despite the team's highest final GPM)
+  // instead of inventing a rationale from final GPM, which is NOT the basis.
+  const earlyRank: (number | undefined)[] = rawPlayers.map(() => undefined);
+  for (const radiant of [true, false]) {
+    const team = rawPlayers
+      .map((p, i) => ({ p, i }))
+      .filter(({ p }) => sideFromPlayerSlot(p.player_slot ?? (radiant ? 0 : 128)) === (radiant ? "radiant" : "dire"));
+    const scored = team
+      .filter(
+        ({ p }) =>
+          Array.isArray(p.gold_t) && (p.gold_t as number[]).length > 12 &&
+          Array.isArray(p.lh_t) && (p.lh_t as number[]).length > 12,
+      )
+      .map(({ p, i }) => {
+        const avg = (a: number[]) => (a[10] + a[11] + a[12]) / 3;
+        return { i, gold: avg(p.gold_t as number[]), lh: avg(p.lh_t as number[]), rg: 0, rl: 0 };
+      });
+    if (scored.length < 2) continue;
+    const byGold = [...scored].sort((a, b) => b.gold - a.gold);
+    const byLh = [...scored].sort((a, b) => b.lh - a.lh);
+    for (const s of scored) {
+      s.rg = byGold.indexOf(s);
+      s.rl = byLh.indexOf(s);
+    }
+    scored
+      .slice()
+      .sort((a, b) => a.rg + a.rl - (b.rg + b.rl))
+      .forEach((s, idx) => {
+        earlyRank[s.i] = idx + 1;
+      });
+  }
+  players.forEach((pl, i) => {
+    if (earlyRank[i] != null) pl.early_farm_rank = earlyRank[i];
+  });
+
   // Lane results, same computation as the official Story tab (MatchStory LaneStory):
   // per (side, lane) take the MAX gold_t[10] among non-roaming players, a >500
   // difference decides the lane, closer than that is a draw. (The Laning tab's
@@ -702,6 +740,15 @@ export async function enrichMatch(
         ? "Unparsed match: basic data only (no teamfights/graphs/logs/lane data). " +
           "Call request_match_parse with this match_id to unlock deep data, then re-fetch."
         : undefined,
+    position_note: players.some((pl) => pl.position != null)
+      ? "Positions are PER-TEAM roles (1=carry .. 5=hard support), never compared across teams. " +
+        "position_est / official_algorithm rank EARLY farm priority — gold + last hits averaged over " +
+        "minutes 10-12; top 3 = cores mapped to 1/2/3 by lane, bottom 2 = supports 4/5. Final GPM is " +
+        "NOT the basis: a roamer who snowballs late can hold the lowest early_farm_rank slot (pos 4/5) " +
+        "yet end with the team's highest GPM. early_farm_rank shows each player's minute-10-12 priority " +
+        "within their team. lane_farm_heuristic / farm_order_only are weaker fallbacks (no parsed " +
+        "time series) — treat them as low-confidence."
+      : undefined,
     players,
   };
 

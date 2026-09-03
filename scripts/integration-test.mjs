@@ -417,6 +417,11 @@ console.log("\n■ Regression K — official position port, firstblood resolutio
   await new Promise((r) => mock.listen(0, "127.0.0.1", r));
   const mc = await boot({ OPENDOTA_BASE_URL: `http://127.0.0.1:${mock.address().port}/api` });
   const m = await call(mc, "get_match", { match_id: 444444, include: { objectives: true } });
+  const rankPlayers = (m.players ?? []).filter((p) => p.early_farm_rank != null);
+  ok("players carry early_farm_rank 1-5 (per team)", rankPlayers.length === 10 && rankPlayers.every((p) => p.early_farm_rank >= 1 && p.early_farm_rank <= 5), `${rankPlayers.length}/10`);
+  const radiantRanks = rankPlayers.filter((p) => p.is_radiant).map((p) => p.early_farm_rank).sort().join(",");
+  ok("early_farm_rank is a per-team 1-5 permutation", radiantRanks === "1,2,3,4,5", radiantRanks);
+  ok("match view carries position_note legend", typeof m.position_note === "string" && m.position_note.includes("NOT the basis"));
   ok("official position port: farm order + ward tiebreak", [0, 1, 2, 3, 4].map((s) => m.players.find((p) => p.player_slot === s).position).join("") === "12345", [0, 1, 2, 3, 4].map((s) => m.players.find((p) => p.player_slot === s).position).join(""));
   ok("official position port (dire side)", [128, 129, 130, 131, 132].map((s) => m.players.find((p) => p.player_slot === s).position).join("") === "12345");
   const fb = m.objectives.find((o) => o.event === "First Blood");
@@ -1160,6 +1165,8 @@ console.log("\n■ Regression W — tiered cache: parsed matches are long-cached
   const b = await boot(env);
   const m = await call(b, "get_match", { match_id: 777 });
   ok("parsed match survives a process restart via disk cache (still 1 upstream)", hitCount[777] === 1 && m.match_id === 777, String(hitCount[777]));
+  // Position evidence: the response must explain its own position numbers.
+  ok("parsed match carries position_note legend", typeof m.position_note === "string" && m.position_note.includes("minutes 10-12"));
   await b.close();
   mock.close();
 }
