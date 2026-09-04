@@ -93,11 +93,14 @@ function buildServer(opts: { includeStratz?: boolean } = {}): McpServer {
         "refresh_player(account_id) once, wait a few seconds, then re-query. ALL timestamps in responses are " +
         "UTC — ALWAYS convert to the user's local timezone (you usually know it from the user's profile) " +
         "before quoting dates/times, and label the timezone. " +
-        "(7) ALWAYS use these tools for Dota data — never fetch api.opendota.com yourself (via exec/curl/" +
+        "(7) For bulk form analysis ('analyze my last 100 games') ALWAYS use get_player_match_analytics — " +
+      "it aggregates server-side in one request. NEVER loop get_match over a match list (quota AND context " +
+      "explosion); pick specific match_ids from its report for deep dives. " +
+      "(8) ALWAYS use these tools for Dota data — never fetch api.opendota.com yourself (via exec/curl/" +
         "web tools): raw responses contain untranslated numeric ids, no caching, and burn the user's rate " +
         "limit. Everything the API offers is exposed here, already enriched and cached. " +
         (includeStratz
-          ? "(8) Rank-bracket/position-split aggregates (get_matchups_by_rank, get_item_builds_by_rank, " +
+          ? "(9) Rank-bracket/position-split aggregates (get_matchups_by_rank, get_item_builds_by_rank, " +
             "get_talent_stats, get_skill_builds_by_rank, get_lane_matchups, get_draft_advice, get_hero_trend) come " +
             "from STRATZ with much larger samples than the OpenDota scenario tools — prefer them for " +
             "counter/item/talent/lane/draft questions, and quote win rates with their ci95_pp. "

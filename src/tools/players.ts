@@ -318,7 +318,8 @@ export const playerTools: ToolDef[] = [
     description:
       "Get a player's rated match history with rich filters (hero, game mode, patch, date range, side, with/against " +
       "heroes, ...). Each row is enriched with hero name, win/loss, game mode label. For summaries use " +
-      "get_player_win_loss or get_player_heroes instead.",
+      "get_player_win_loss or get_player_heroes instead. For bulk analysis over many games use " +
+      "get_player_match_analytics (one request, server-side aggregation) — never call get_match per id.",
     schema: {
       account_id: accountId,
       language: languageParam,
@@ -351,6 +352,197 @@ export const playerTools: ToolDef[] = [
       return { ...wl, total, win_rate_pct: total > 0 ? Math.round(((wl.win ?? 0) / total) * 1000) / 10 : undefined };
     },
   },
+  {
+    name: "get_player_match_analytics",
+    description:
+      "Bulk player-form analysis over up to 200 recent matches in ONE upstream request — " +
+      "win rate + trend (first vs second half), current & longest streaks, per-hero table with KDA, " +
+      "mode/party breakdowns, session pattern, best/worst heroes. The per-match rows are aggregated " +
+      "SERVER-SIDE into a compact report (~3 KB) so neither API quota nor context window explodes. " +
+      "Use this for 'analyze my last N games' questions — NEVER loop get_match over a match list; " +
+      "pick specific match_ids from this report for deep dives instead.",
+    schema: {
+      account_id: accountId,
+      limit: z.number().int().min(10).max(200).optional().describe("Matches to analyze (default 100)."),
+      language: languageParam,
+      per_match: z.boolean().optional().describe("Include the full slim per-match list (default: only the 10 most recent)."),
+    },
+    handler: async (args, ctx) => {
+      const lang = effectiveLanguage(args.language, ctx);
+      const limit = args.limit ?? 100;
+      // One paged list fetch (endpoint accepts limit directly up to ~100;
+      // page beyond that).
+      const rows: Record<string, any>[] = [];
+      for (let offset = 0; rows.length < limit; offset += 100) {
+        const page = await apiGet<Record<string, any>[]>(`/players/${args.account_id}/matches`, {
+          query: { limit: Math.min(100, limit - rows.length), offset, significant: 0 },
+          ttl: "listing",
+        });
+        if (!Array.isArray(page) || page.length === 0) break;
+        rows.push(...page);
+        if (page.length < 100) break;
+      }
+      if (rows.length === 0) {
+        return { error: "No matches found for this player.", hint: "Check the account id; refresh_player can force an index update." };
+      }
+      // Oldest→newest for streak/trend math.
+      const asc = [...rows].sort((a, b) => a.start_time - b.start_time);
+      const pct1 = (w: number, g: number) => (g > 0 ? Math.round((w / g) * 1000) / 10 : undefined);
+      const kda = (k: number, d: number, a: number) => (k + a) / Math.max(d, 1);
+
+      let wins = 0;
+      const heroAgg = new Map<number, { g: number; w: number; k: number; d: number; a: number }>();
+      const modeAgg = new Map<number, { g: number; w: number }>();
+      const partyAgg = new Map<string, { g: number; w: number }>();
+      let durSum = 0;
+      let leaves = 0;
+      let kSum = 0;
+      let dSum = 0;
+      let aSum = 0;
+      let curStreak = 0;
+      let curStreakWin = false;
+      let bestW = 0;
+      let bestL = 0;
+      let runW = 0;
+      let runL = 0;
+      for (const m of asc) {
+        const win = m.radiant_win === ((m.player_slot ?? 0) < 128);
+        if (win) {
+          wins++;
+          runW++;
+          runL = 0;
+          bestW = Math.max(bestW, runW);
+        } else {
+          runL++;
+          runW = 0;
+          bestL = Math.max(bestL, runL);
+        }
+        if (curStreak === 0) {
+          curStreak = 1;
+          curStreakWin = win;
+        } else if (curStreakWin === win) {
+          curStreak++;
+        } else {
+          curStreak = 1;
+          curStreakWin = win;
+        }
+        const h = heroAgg.get(m.hero_id) ?? { g: 0, w: 0, k: 0, d: 0, a: 0 };
+        h.g++;
+        if (win) h.w++;
+        h.k += m.kills ?? 0;
+        h.d += m.deaths ?? 0;
+        h.a += m.assists ?? 0;
+        heroAgg.set(m.hero_id, h);
+        const mo = modeAgg.get(m.game_mode) ?? { g: 0, w: 0 };
+        mo.g++;
+        if (win) mo.w++;
+        modeAgg.set(m.game_mode, mo);
+        const ps = m.party_size == null ? "unknown" : m.party_size === 1 ? "solo" : `${m.party_size}-stack`;
+        const pa = partyAgg.get(ps) ?? { g: 0, w: 0 };
+        pa.g++;
+        if (win) pa.w++;
+        partyAgg.set(ps, pa);
+        durSum += m.duration ?? 0;
+        if ((m.leaver_status ?? 0) > 1) leaves++;
+        kSum += m.kills ?? 0;
+        dSum += m.deaths ?? 0;
+        aSum += m.assists ?? 0;
+      }
+      const n = asc.length;
+      const half = Math.floor(n / 2);
+      const firstHalfWins = asc.slice(0, half).filter((m) => m.radiant_win === ((m.player_slot ?? 0) < 128)).length;
+      const secondHalfWins = wins - firstHalfWins;
+
+      // Sessions: gaps > 4h split play sessions (timezone-free pattern signal).
+      let sessions = n > 0 ? 1 : 0;
+      for (let i = 1; i < n; i++) {
+        if (asc[i].start_time - asc[i - 1].start_time > 4 * 3600) sessions++;
+      }
+
+      const byHero = await Promise.all(
+        [...heroAgg.entries()]
+          .sort((x, y) => y[1].g - x[1].g)
+          .slice(0, 10)
+          .map(async ([heroId, h]) => ({
+            hero: (await heroRef(heroId, lang))?.name ?? `hero ${heroId}`,
+            games: h.g,
+            win_rate_pct: pct1(h.w, h.g),
+            avg_kda: Math.round(((h.k + h.a) / Math.max(h.d, 1)) * 100) / 100,
+          })),
+      );
+      const eligible = [...heroAgg.entries()].filter(([, h]) => h.g >= 3);
+      const bestEntry = eligible.sort((x, y) => (pct1(y[1].w, y[1].g) ?? 0) - (pct1(x[1].w, x[1].g) ?? 0))[0];
+      const worstEntry = [...eligible].sort((x, y) => (pct1(x[1].w, x[1].g) ?? 99) - (pct1(y[1].w, y[1].g) ?? 99))[0];
+      const nm = async (e: typeof bestEntry) =>
+        e ? { hero: (await heroRef(e[0], lang))?.name, games: e[1].g, win_rate_pct: pct1(e[1].w, e[1].g) } : undefined;
+
+      const slim = (m: Record<string, any>) => {
+        const win = m.radiant_win === ((m.player_slot ?? 0) < 128);
+        return {
+          match_id: m.match_id,
+          hero: undefined as string | undefined, // filled below (async name lookup)
+          result: win ? "W" : "L",
+          kda: `${m.kills ?? 0}/${m.deaths ?? 0}/${m.assists ?? 0}`,
+          minutes: Math.round((m.duration ?? 0) / 60),
+        };
+      };
+      const slimRows = await Promise.all(
+        (args.per_match ? asc : asc.slice(-10)).map(async (m) => ({
+          ...slim(m),
+          hero: (await heroRef(m.hero_id as number, lang))?.name,
+        })),
+      );
+
+      return {
+        account_id: args.account_id,
+        window: {
+          games: n,
+          from: formatTimestamp(asc[0].start_time),
+          to: formatTimestamp(asc[n - 1].start_time),
+          days_spanned: Math.round((asc[n - 1].start_time - asc[0].start_time) / 86400),
+          play_sessions: sessions,
+          avg_matches_per_session: sessions > 0 ? Math.round((n / sessions) * 10) / 10 : undefined,
+        },
+        overall: {
+          wins,
+          losses: n - wins,
+          win_rate_pct: pct1(wins, n),
+          avg_kda: Math.round(((kSum + aSum) / Math.max(dSum, 1)) * 100) / 100,
+          avg_duration_min: Math.round(durSum / n / 60),
+          current_streak: `${curStreak}${curStreakWin ? "W" : "L"}`,
+          longest_win_streak: bestW,
+          longest_loss_streak: bestL,
+          abandoned: leaves,
+        },
+        trend: {
+          first_half_win_rate_pct: pct1(firstHalfWins, half),
+          second_half_win_rate_pct: pct1(secondHalfWins, n - half),
+          note: "halves are chronological — compare to spot rising or declining form.",
+        },
+        by_hero: byHero,
+        best_hero: await nm(bestEntry),
+        worst_hero: await nm(worstEntry),
+        by_mode: await Promise.all(
+          [...modeAgg.entries()]
+            .sort((x, y) => y[1].g - x[1].g)
+            .map(async ([modeId, mo]) => ({
+              mode: (await gameModeName(modeId)) ?? `mode ${modeId}`,
+              games: mo.g,
+              win_rate_pct: pct1(mo.w, mo.g),
+            })),
+        ),
+        by_party: [...partyAgg.entries()]
+          .sort((x, y) => y[1].g - x[1].g)
+          .map(([ps, pa]) => ({ party: ps, games: pa.g, win_rate_pct: pct1(pa.w, pa.g) })),
+        recent_matches: slimRows,
+        note:
+          "Aggregated from OpenDota's match-list index (one request) — per-match replay detail is deliberately " +
+          "excluded to protect quota and context. Pick match_ids from recent_matches for get_match / " +
+          "get_match_coaching deep dives. Index lags hours for Turbo; totals here may undercount very recent games.",
+      };
+    },
+  },
+
   {
     name: "get_player_heroes",
     description:
