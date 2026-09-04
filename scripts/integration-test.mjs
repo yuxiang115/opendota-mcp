@@ -1195,6 +1195,11 @@ if (!LIVE) {
   ok("analytics: hero table localized + kda", Array.isArray(an.by_hero) && an.by_hero.length > 0 && typeof an.by_hero[0].avg_kda === "number" && !/^hero \d+$/.test(an.by_hero[0].hero), an.by_hero?.[0]?.hero);
   ok("analytics: recent slim list for drill-down", Array.isArray(an.recent_matches) && an.recent_matches.length > 0 && typeof an.recent_matches[0].match_id === "number");
   ok("analytics: compact response (context safety)", JSON.stringify(an).length < 8000);
+
+  const aug = await call(yClient, "get_player_match_analytics", { account_id: 48645517, from: "2026-08-01", to: "2026-08-31", language: "schinese" });
+  ok("analytics: month window filters correctly", aug.window?.games > 0 && aug.window.days_spanned <= 31 && aug.window.coverage === "complete", `${aug.window?.games} games / ${aug.window?.days_spanned}d`);
+  const badDate = await expectError(yClient, "get_player_match_analytics", { account_id: 48645517, from: "not-a-date" });
+  ok("analytics: bad date rejected with hint", badDate.isError || JSON.parse(badDate.text).error != null);
   await yClient.close();
 }
 }

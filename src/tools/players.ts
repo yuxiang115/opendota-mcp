@@ -355,7 +355,8 @@ export const playerTools: ToolDef[] = [
   {
     name: "get_player_match_analytics",
     description:
-      "Bulk player-form analysis over up to 200 recent matches in ONE upstream request — " +
+      "Bulk player-form analysis over recent matches, optionally a TIME WINDOW (from/to, e.g. this " +
+      "month / this year) — " +
       "win rate + trend (first vs second half), current & longest streaks, per-hero table with KDA, " +
       "mode/party breakdowns, session pattern, best/worst heroes. The per-match rows are aggregated " +
       "SERVER-SIDE into a compact report (~3 KB) so neither API quota nor context window explodes. " +
@@ -363,7 +364,9 @@ export const playerTools: ToolDef[] = [
       "pick specific match_ids from this report for deep dives instead.",
     schema: {
       account_id: accountId,
-      limit: z.number().int().min(10).max(200).optional().describe("Matches to analyze (default 100)."),
+      limit: z.number().int().min(10).max(500).optional().describe("Max matches to analyze (default 100, hard cap 500)."),
+      from: z.string().optional().describe("Window start, 'YYYY-MM-DD' or ISO (inclusive). e.g. this month, this year."),
+      to: z.string().optional().describe("Window end, 'YYYY-MM-DD' or ISO (inclusive; default now)."),
       language: languageParam,
       per_match: z.boolean().optional().describe("Include the full slim per-match list (default: only the 10 most recent)."),
     },
@@ -372,16 +375,58 @@ export const playerTools: ToolDef[] = [
       const limit = args.limit ?? 100;
       // One paged list fetch (endpoint accepts limit directly up to ~100;
       // page beyond that).
+      // OpenDota's date filter is not honored by this endpoint (verified), so
+      // windows are applied client-side while paging newest-first — pages are
+      // only fetched until the window's start is crossed.
+      let dateError: string | undefined;
+      const parseDate = (v: string | undefined, label: string): number | undefined => {
+        if (v == null) return undefined;
+        const t = Date.parse(v.length === 10 ? `${v}T00:00:00Z` : v);
+        if (Number.isNaN(t)) {
+          dateError = `Invalid ${label} date: ${v} — use YYYY-MM-DD or ISO (e.g. from: "2026-08-01").`;
+          return undefined;
+        }
+        return Math.floor(t / 1000);
+      };
+      const fromTs = parseDate(args.from, "from");
+      const toTsRaw = parseDate(args.to, "to");
+      if (dateError) return { error: dateError };
+      const toTs = toTsRaw == null ? undefined : toTsRaw + 86400; // inclusive end of day
+      const nowTs = Math.floor(Date.now() / 1000);
+      const windowEnd = Math.min(toTs ?? nowTs + 60, nowTs + 60);
       const rows: Record<string, any>[] = [];
-      for (let offset = 0; rows.length < limit; offset += 100) {
+      let exhaustedHistory = false;
+      let hitCap = false;
+      for (let offset = 0; offset < 500; offset += 100) {
         const page = await apiGet<Record<string, any>[]>(`/players/${args.account_id}/matches`, {
-          query: { limit: Math.min(100, limit - rows.length), offset, significant: 0 },
+          query: { limit: 100, offset, significant: 0 },
           ttl: "listing",
         });
-        if (!Array.isArray(page) || page.length === 0) break;
-        rows.push(...page);
-        if (page.length < 100) break;
+        if (!Array.isArray(page) || page.length === 0) {
+          exhaustedHistory = true;
+          break;
+        }
+        const oldest = page[page.length - 1].start_time as number;
+        for (const m of page) {
+          if ((m.start_time as number) > windowEnd) continue;
+          if (fromTs != null && (m.start_time as number) < fromTs) continue;
+          rows.push(m);
+        }
+        if (rows.length >= limit) {
+          hitCap = rows.length >= limit && !(fromTs != null && oldest < fromTs) && page.length === 100;
+          break;
+        }
+        if (fromTs != null && oldest < fromTs) {
+          exhaustedHistory = true;
+          break;
+        }
+        if (page.length < 100) {
+          exhaustedHistory = true;
+          break;
+        }
       }
+      if (rows.length > limit) rows.length = limit;
+      const windowComplete = exhaustedHistory || (fromTs != null && rows.length < limit);
       if (rows.length === 0) {
         return { error: "No matches found for this player.", hint: "Check the account id; refresh_player can force an index update." };
       }
@@ -496,6 +541,8 @@ export const playerTools: ToolDef[] = [
       return {
         account_id: args.account_id,
         window: {
+          requested: args.from || args.to ? { from: args.from, to: args.to } : undefined,
+          coverage: windowComplete ? "complete" : "partial (capped at limit; oldest games in the window were not analyzed — raise limit or narrow from/to)",
           games: n,
           from: formatTimestamp(asc[0].start_time),
           to: formatTimestamp(asc[n - 1].start_time),
@@ -538,7 +585,9 @@ export const playerTools: ToolDef[] = [
         note:
           "Aggregated from OpenDota's match-list index (one request) — per-match replay detail is deliberately " +
           "excluded to protect quota and context. Pick match_ids from recent_matches for get_match / " +
-          "get_match_coaching deep dives. Index lags hours for Turbo; totals here may undercount very recent games.",
+          "get_match_coaching deep dives. Index lags hours for Turbo; totals here may undercount very recent games. " +
+          "For WHOLE-CAREER aggregates (multi-year) use get_player_overview / get_player_heroes instead — they " +
+          "aggregate over full history server-side.",
       };
     },
   },
