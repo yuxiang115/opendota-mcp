@@ -361,10 +361,18 @@ export const playerTools: ToolDef[] = [
       "mode/party breakdowns, session pattern, best/worst heroes. The per-match rows are aggregated " +
       "SERVER-SIDE into a compact report (~3 KB) so neither API quota nor context window explodes. " +
       "Use this for 'analyze my last N games' questions — NEVER loop get_match over a match list; " +
-      "pick specific match_ids from this report for deep dives instead.",
+      "pick specific match_ids from this report for deep dives instead. offset paginates backward through " +
+      "history (SQL-style limit/offset over the window) — 'the 100 games before that' is offset=100.",
     schema: {
       account_id: accountId,
       limit: z.number().int().min(10).max(500).optional().describe("Max matches to analyze (default 100, hard cap 500)."),
+      offset: z
+        .number()
+        .int()
+        .min(0)
+        .max(2000)
+        .optional()
+        .describe("Skip the N most recent matches (after from/to filtering) before aggregating — SQL-style pagination through history, e.g. offset=100 limit=100 analyzes games 101-200."),
       from: z.string().optional().describe("Window start, 'YYYY-MM-DD' or ISO (inclusive). e.g. this month, this year."),
       to: z.string().optional().describe("Window end, 'YYYY-MM-DD' or ISO (inclusive; default now)."),
       language: languageParam,
@@ -394,12 +402,18 @@ export const playerTools: ToolDef[] = [
       const toTs = toTsRaw == null ? undefined : toTsRaw + 86400; // inclusive end of day
       const nowTs = Math.floor(Date.now() / 1000);
       const windowEnd = Math.min(toTs ?? nowTs + 60, nowTs + 60);
+      const skip = args.offset ?? 0;
+      if (skip + limit > 2000) {
+        return { error: "offset + limit exceeds 2000 — deeper history slices are impractical against OpenDota paging." };
+      }
       const rows: Record<string, any>[] = [];
+      let matchedBeforeSkip = 0;
+      let skipped = 0;
       let exhaustedHistory = false;
-      let hitCap = false;
-      for (let offset = 0; offset < 500; offset += 100) {
+      const pageCap = Math.ceil((skip + limit) / 100) + 2;
+      for (let pageIdx = 0; pageIdx < pageCap; pageIdx++) {
         const page = await apiGet<Record<string, any>[]>(`/players/${args.account_id}/matches`, {
-          query: { limit: 100, offset, significant: 0 },
+          query: { limit: 100, offset: pageIdx * 100, significant: 0 },
           ttl: "listing",
         });
         if (!Array.isArray(page) || page.length === 0) {
@@ -410,12 +424,14 @@ export const playerTools: ToolDef[] = [
         for (const m of page) {
           if ((m.start_time as number) > windowEnd) continue;
           if (fromTs != null && (m.start_time as number) < fromTs) continue;
+          matchedBeforeSkip++;
+          if (skipped < skip) {
+            skipped++;
+            continue;
+          }
           rows.push(m);
         }
-        if (rows.length >= limit) {
-          hitCap = rows.length >= limit && !(fromTs != null && oldest < fromTs) && page.length === 100;
-          break;
-        }
+        if (rows.length >= limit) break;
         if (fromTs != null && oldest < fromTs) {
           exhaustedHistory = true;
           break;
@@ -425,8 +441,14 @@ export const playerTools: ToolDef[] = [
           break;
         }
       }
+      if (rows.length === 0 && matchedBeforeSkip > 0) {
+        return {
+          error: `offset=${skip} skips past every match in the requested window (${matchedBeforeSkip} matched).`,
+          hint: "Lower offset, or widen from/to.",
+        };
+      }
       if (rows.length > limit) rows.length = limit;
-      const windowComplete = exhaustedHistory || (fromTs != null && rows.length < limit);
+      const windowComplete = exhaustedHistory;
       if (rows.length === 0) {
         return { error: "No matches found for this player.", hint: "Check the account id; refresh_player can force an index update." };
       }
@@ -542,6 +564,7 @@ export const playerTools: ToolDef[] = [
         account_id: args.account_id,
         window: {
           requested: args.from || args.to ? { from: args.from, to: args.to } : undefined,
+          offset_applied: skip || undefined,
           coverage: windowComplete ? "complete" : "partial (capped at limit; oldest games in the window were not analyzed — raise limit or narrow from/to)",
           games: n,
           from: formatTimestamp(asc[0].start_time),

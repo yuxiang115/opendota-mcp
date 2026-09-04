@@ -17,7 +17,7 @@ description: Analyze Dota 2 matches, players, heroes, and the current meta throu
 
 ### 批量战绩分析（"分析我近100场"）——一次请求服务端聚合
 ```
-1. get_player_match_analytics(account_id, limit=100, from="YYYY-MM-DD", to="YYYY-MM-DD") → 胜率/趋势（前后半对比）、连胜连败、
+1. get_player_match_analytics(account_id, limit=100, offset=0, from="YYYY-MM-DD", to="YYYY-MM-DD") → 胜率/趋势（前后半对比）、连胜连败、
    英雄表（均KDA）、最佳/最差英雄、模式/组队构成、上分次数，整体约 3KB
 2. 深挖某场 → 从 recent_matches 挑 match_id 调 get_match_coaching
 ```

@@ -1200,6 +1200,14 @@ if (!LIVE) {
   ok("analytics: month window filters correctly", aug.window?.games > 0 && aug.window.days_spanned <= 31 && aug.window.coverage === "complete", `${aug.window?.games} games / ${aug.window?.days_spanned}d`);
   const badDate = await expectError(yClient, "get_player_match_analytics", { account_id: 48645517, from: "not-a-date" });
   ok("analytics: bad date rejected with hint", badDate.isError || JSON.parse(badDate.text).error != null);
+
+  const page2 = await call(yClient, "get_player_match_analytics", { account_id: 48645517, limit: 50, offset: 50 });
+  const page1ids = new Set(an.recent_matches.map((m) => m.match_id));
+  ok(
+    "analytics: offset pages backward without overlap",
+    page2.window?.offset_applied === 50 && page2.window.games > 0 && page2.recent_matches.every((m) => !page1ids.has(m.match_id)),
+    `offset=${page2.window?.offset_applied} games=${page2.window?.games}`,
+  );
   await yClient.close();
 }
 }
