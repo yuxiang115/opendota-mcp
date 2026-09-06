@@ -22,10 +22,23 @@ const heroArg = z
   .union([z.number().int().positive(), z.string().min(1)])
   .describe("Hero id or name (English/localized, e.g. 44, 'Phantom Assassin', '幻影刺客').");
 
+const BRACKET_SYNONYMS: Record<string, string> = {
+  herald: "herald_guardian", guardian: "herald_guardian", low: "herald_guardian",
+  "低分段": "herald_guardian", "低段": "herald_guardian",
+  crusader: "crusader_archon", archon: "crusader_archon", "中低分段": "crusader_archon",
+  legend: "legend_ancient", ancient: "legend_ancient", "中高分段": "legend_ancient",
+  divine: "divine_immortal", immortal: "divine_immortal", high: "divine_immortal",
+  "高分段": "divine_immortal", "高段": "divine_immortal",
+};
 const bracketArg = z
-  .enum(["herald_guardian", "crusader_archon", "legend_ancient", "divine_immortal"])
-  .optional()
-  .describe("Rank bracket filter. Omit for all brackets combined.");
+  .preprocess(
+    (v) => (typeof v === "string" ? BRACKET_SYNONYMS[v.trim().toLowerCase()] ?? v : v),
+    z.enum(["herald_guardian", "crusader_archon", "legend_ancient", "divine_immortal"]).optional(),
+  )
+  .describe(
+    "Rank bracket filter (herald_guardian | crusader_archon | legend_ancient | divine_immortal). " +
+      "Also accepts how people say it: 'divine', 'immortal', 'low', 'high', '低分段', '高分段'. Omit for all brackets.",
+  );
 
 /**
  * STRATZ bracket ranges, named with Valve's official medal terms and localized.
@@ -287,6 +300,7 @@ const rawStratzTools: ToolDef[] = [
   {
     name: "get_matchups_by_rank",
     description:
+      "Users ask: 'XX克制谁', '火猫打nec怎么样'. " +
       "Hero counters WITH RANK-BRACKET FILTER, from STRATZ's full match pool (much larger samples than " +
       "get_hero_matchups). Returns who the hero beats (win rate > 52%) and who it struggles against (< 48%), " +
       "each with games, win rate and a 95% confidence interval. Pass vs_hero to get ONE exact pairing's win " +

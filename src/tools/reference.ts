@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { apiGet } from "../client.js";
 import { heroLookupError, lookupHeroAlias } from "../aliases.js";
+import { bestFuzzyMatch } from "../fuzzy.js";
 import {
   getItemIds,
   getAbilities,
@@ -96,11 +97,20 @@ export async function resolveHero(input: number | string, lang: string): Promise
   // Community nicknames (火猫, 白牛, PA, ...) — ambiguous ones intentionally do not resolve.
   const alias = lookupHeroAlias(input);
   if (alias && "id" in alias) return alias.id;
-  // Unique substring match as a last resort.
+  // Unique substring match.
   const partial = Object.entries(english).filter(
     ([, e]) => e.name_en.toLowerCase().includes(q) || e.internal.includes(q),
   );
-  return partial.length === 1 ? Number(partial[0][0]) : undefined;
+  if (partial.length === 1) return Number(partial[0][0]);
+  // Typo tolerance: only near-perfect bigram matches adopt silently ("amti mage");
+  // weaker hits stay unresolved so the error path can suggest candidates.
+  const fuzzyCandidates = Object.entries(english).map(([id, e]) => ({
+    value: e.name_en ?? e.name,
+    also: [e.name, e.internal, local[Number(id)]?.name ?? ""].filter(Boolean),
+    id: Number(id),
+  }));
+  const hit = bestFuzzyMatch(input, fuzzyCandidates, 0.9);
+  return hit ? fuzzyCandidates.find((c) => c.value === hit.value)?.id : undefined;
 }
 
 const heroInput = z

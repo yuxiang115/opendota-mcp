@@ -1,3 +1,4 @@
+import { normalizeLaneRole } from "../constants.js";
 import { z } from "zod";
 import { normalizeLanguage, type SupportedLanguage } from "../locales.js";
 
@@ -42,7 +43,12 @@ export const playerFilterShape = {
   lobby_type: z.number().int().optional().describe("Lobby type id filter (e.g. 7 = Ranked)."),
   region: z.number().int().optional().describe("Region id filter."),
   date: z.number().int().optional().describe("Only matches from the last N days."),
-  lane_role: z.number().int().min(0).max(4).optional().describe("Lane role: 1=Safe, 2=Mid, 3=Off, 4=Jungle."),
+  lane_role: z
+    .union([z.number().int().min(0).max(4), z.string()])
+    .optional()
+    .describe(
+      "Lane role: 1=Safe, 2=Mid, 3=Off, 4=Jungle — also accepts how people say it: 'safelane', 'carry', 'pos 1', 'midlane', 'offlane', '优势路', '中路'...",
+    ),
   hero_id: z.number().int().optional().describe("Only matches on this hero id."),
   is_radiant: z.number().int().min(0).max(1).optional().describe("1 = Radiant side only, 0 = Dire only."),
   included_account_id: z.array(z.number().int()).optional().describe("Only matches where these account ids played."),
@@ -72,6 +78,10 @@ export function toQuery(args: Record<string, unknown>): Record<string, string | 
   for (const [k, v] of Object.entries(args)) {
     if (v === undefined || v === null) continue;
     if (Array.isArray(v)) query[k] = v as number[];
+    else if (k === "lane_role") {
+      const lane = normalizeLaneRole(v as string | number);
+      if (lane != null) query[k] = lane;
+    }
     else query[k] = v as string | number;
   }
   return query;

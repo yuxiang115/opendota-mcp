@@ -2,7 +2,8 @@ import { z } from "zod";
 import { apiGet } from "../client.js";
 import { enrichHeroMatchupRow, enrichHeroStatRow, enrichItemPopularity } from "../enrich.js";
 import { getLocaleBundle } from "../locales.js";
-import { enrichPlayerMatchRow, heroRef, rankTierToLabel } from "../mapping.js";
+import { enrichPlayerMatchRow, heroRef, rankTierToLabel, formatTimestamp } from "../mapping.js";
+import { normalizeStatField } from "../constants.js";
 import { bracketLabel } from "../constants.js";
 import { effectiveLanguage, languageParam, type ToolDef } from "./registry.js";
 
@@ -11,6 +12,12 @@ const heroIdParam = z
   .int()
   .positive()
   .describe("Hero id (resolve names to ids first with search_dota_entities, e.g. '敌法师' -> 1).");
+const heroIdParamOptional = z
+  .number()
+  .int()
+  .positive()
+  .optional()
+  .describe("Optional hero id filter (resolve names with search_dota_entities first).");
 
 export const heroTools: ToolDef[] = [
   {
@@ -200,6 +207,52 @@ export const heroTools: ToolDef[] = [
           win_rate_pct: games > 0 ? Math.round((row.wins / games) * 1000) / 10 : undefined,
         };
       });
+    },
+  },
+  {
+    name: "get_records",
+    description:
+      "All-time single-match record leaderboard for one stat (kills, gold_per_min, assists, ...) across ALL public " +
+      "matches - global top list, every skill level. Users ask: 'who has the most kills ever recorded?', " +
+      "'历史最髓GPM是多少?'. These are extreme outliers, not benchmarks - use " +
+      "get_hero_benchmarks for realistic percentiles. Optional hero filter picks that hero's entries out of the " +
+      "global top list (a hero absent from it simply never made the global board).",
+    schema: {
+      field: z
+        .string()
+        .describe(
+          "Record stat - full field names ('kills', 'gold_per_min', 'assists', 'hero_damage', 'last_hits', 'duration') or colloquial 'gpm', 'xpm', 'cs'.",
+        ),
+      hero_id: heroIdParamOptional,
+      language: languageParam,
+    },
+    handler: async (args, ctx) => {
+      const lang = effectiveLanguage(args.language, ctx);
+      const field = normalizeStatField(args.field);
+      const rows = await apiGet<Record<string, any>[]>(`/records/${encodeURIComponent(field)}`, { ttl: "aggregate" });
+      const all = await Promise.all(
+        (rows ?? []).map(async (r) => ({
+          score: r.score,
+          match_id: r.match_id,
+          hero: r.hero_id != null ? (await heroRef(r.hero_id, lang))?.name : undefined,
+          hero_id: r.hero_id,
+          start_time: r.start_time != null ? formatTimestamp(r.start_time) : undefined,
+        })),
+      );
+      const filtered = args.hero_id != null ? all.filter((r) => r.hero_id === args.hero_id) : all;
+      const hero = args.hero_id != null ? await heroRef(args.hero_id, lang) : undefined;
+      return {
+        field,
+        ...(hero ? { hero } : {}),
+        records: filtered.slice(0, 20).map(({ hero_id, ...rest }) => rest),
+        note:
+          "Global all-time top list from OpenDota's records dataset (extremes across every skill bracket - stomps " +
+          "included; treat as curiosities, not targets). Rows carry no player names - call get_match on a match_id " +
+          "to see who did it. " +
+          (args.hero_id != null
+            ? "Filtered to this hero's entries INSIDE the global board; absence means the hero never cracked it."
+            : ""),
+      };
     },
   },
   {

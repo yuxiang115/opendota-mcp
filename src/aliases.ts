@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { bestFuzzyMatch, topSuggestions } from "./fuzzy.js";
 import os from "node:os";
 import path from "node:path";
 import { getLocaleBundle } from "./locales.js";
@@ -206,6 +207,30 @@ export const BUILTIN_ITEM_ALIASES: Record<string, string> = {
   小蓝: "clarity",
   芒果: "enchanted_mango",
   tp: "tpscroll",
+  // ── English colloquial forms (merged from hkaanengin/opendota-mcp-server) ──
+  "battle fury": "bfury",
+  "battle furry": "bfury",
+  travels: "travel_boots",
+  bots: "travel_boots",
+  treads: "power_treads",
+  pt: "power_treads",
+  phase: "phase_boots",
+  tranquils: "tranquil_boots",
+  midas: "hand_of_midas",
+  "hands of midas": "hand_of_midas",
+  aghs: "ultimate_scepter",
+  scepter: "ultimate_scepter",
+  "agh scepter": "ultimate_scepter",
+  aghanim: "ultimate_scepter",
+  shard: "aghanims_shard",
+  "agh shard": "aghanims_shard",
+  mkb: "monkey_king_bar",
+  "monkey king": "monkey_king_bar",
+  octarine: "octarine_core",
+  diffusal: "diffusal_blade",
+  "eye of skadi": "skadi",
+  vessel: "spirit_vessel",
+  grieves: "guardian_greaves",
   魔棒: "magic_stick",
   魔杖: "magic_wand",
   瓶子: "bottle",
@@ -294,6 +319,25 @@ export function lookupItemAlias(query: string): string | undefined {
   return getAliasTables().items[q];
 }
 
+/** All known hero names (English + localized + builtin aliases) for fuzzy suggestion. */
+function heroFuzzyCandidates(lang: string) {
+  const english = getLocaleBundle("english").heroes;
+  const local = getLocaleBundle(lang).heroes;
+  const out: { value: string; also: string[]; id: number }[] = [];
+  for (const [id, en] of Object.entries(english)) {
+    out.push({
+      value: en.name_en ?? en.name,
+      also: [en.name, en.internal, local[Number(id)]?.name ?? ""].filter(Boolean),
+      id: Number(id),
+    });
+  }
+  for (const [alias, internal] of Object.entries(getAliasTables().heroes)) {
+    const id = internalHeroToId(internal);
+    if (id != null) out.push({ value: alias, also: [], id });
+  }
+  return out;
+}
+
 /** Enriched "hero not found" error: ambiguous nicknames list their candidates. */
 export function heroLookupError(
   input: string | number,
@@ -318,8 +362,16 @@ export function heroLookupError(
       ambiguous: { alias: raw, candidates },
     };
   }
+  // Typo tolerance: high-confidence fuzzy hits are still rejected as the id
+  // (never guess silently), but the error itself tells the agent what was meant.
+  const candidates = heroFuzzyCandidates(lang).map((c) => ({ value: c.value, also: c.also }));
+  const best = bestFuzzyMatch(raw, candidates, 0.7);
+  const suggestions = topSuggestions(raw, candidates, 3);
   return {
-    error: `Unknown hero: ${raw}`,
-    hint: "Resolve names to ids with search_dota_entities first — it also knows community nicknames like 火猫/大骨灰/BKB.",
+    error: `Unknown hero: ${raw}` + (suggestions.length ? ` — did you mean: ${suggestions.join(", ")}?` : ""),
+    hint:
+      "Resolve names to ids with search_dota_entities first — it also knows community nicknames like 火猫/大骨灰/BKB" +
+      (best && best.score >= 0.9 ? ` (and "${raw}" looks like a typo for "${best.value}" — retry with that)` : "") +
+      ".",
   };
 }

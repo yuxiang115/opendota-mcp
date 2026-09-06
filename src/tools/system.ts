@@ -2,6 +2,7 @@ import { z } from "zod";
 import { apiGet } from "../client.js";
 import { CONSTANTS_RESOURCES, getConstantResource, getItemIds } from "../constants.js";
 import { getAliasTables, internalHeroToId, lookupHeroAlias, lookupItemAlias } from "../aliases.js";
+import { similarity } from "../fuzzy.js";
 import { getLocaleBundle, LANGUAGE_LABELS, listBundledLanguages, SUPPORTED_LANGUAGES } from "../locales.js";
 import { languageParam, effectiveLanguage, type ToolDef } from "./registry.js";
 
@@ -160,6 +161,69 @@ export const systemTools: ToolDef[] = [
             });
           }
         }
+      }
+      // Typo tolerance: score heroes and items by bigram similarity across
+      // English + localized names and the alias tables; top hits are labeled
+      // fuzzy so the agent knows the input was NOT an exact name.
+      if (results.length === 0) {
+        const heroPool: { label: string; also: string[]; kind: "hero"; id: number }[] = [];
+        for (const [id, en] of Object.entries(english.heroes)) {
+          heroPool.push({
+            label: localized.heroes[id]?.name || en.name,
+            also: [en.name_en ?? en.name, en.internal],
+            kind: "hero",
+            id: Number(id),
+          });
+        }
+        for (const [alias, internal] of Object.entries(getAliasTables().heroes)) {
+          const id = internalHeroToId(internal);
+          if (id != null) heroPool.push({ label: alias, also: [], kind: "hero", id });
+        }
+        const itemIds = await getItemIds();
+        const itemPool: { label: string; also: string[]; kind: "item"; id: number }[] = [];
+        for (const [id, internal] of Object.entries(itemIds)) {
+          const en = english.items[id];
+          itemPool.push({
+            label: localized.items[id]?.name || en?.name || String(internal),
+            also: [String(internal), en?.name_en ?? ""].filter(Boolean),
+            kind: "item",
+            id: Number(id),
+          });
+        }
+        for (const [alias, internal] of Object.entries(getAliasTables().items)) {
+          const id = Object.entries(itemIds).find(([, v]) => String(v) === internal)?.[0];
+          if (id != null) itemPool.push({ label: alias, also: [], kind: "item", id: Number(id) });
+        }
+        const threshold = q.length <= 4 ? 0.6 : 0.5;
+        const pools = [heroPool, itemPool];
+        // Score across BOTH pools, keep the best entry per (kind, id) — the
+        // name tables and alias tables can hit the same entity.
+        type FuzzyPoolEntry = (typeof heroPool)[number] | (typeof itemPool)[number];
+        const best = new Map<string, { p: FuzzyPoolEntry; score: number }>();
+        for (const pool of pools) {
+          for (const p of pool) {
+            const score = Math.max(similarity(args.query, p.label), ...p.also.map((a) => similarity(args.query, a)));
+            if (score < threshold) continue;
+            const key = `${p.kind}:${p.id}`;
+            const prev = best.get(key);
+            if (!prev || score > prev.score) best.set(key, { p, score });
+          }
+        }
+        [...best.values()]
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 3)
+          .forEach(({ p, score }) => {
+            const en = p.kind === "hero" ? english.heroes[String(p.id)] : english.items[String(p.id)];
+            results.push({
+              kind: p.kind,
+              id: p.id,
+              name: p.label,
+              name_en: en?.name_en,
+              internal: en?.internal,
+              match_type: "fuzzy",
+              confidence: Math.round(score * 100) / 100,
+            });
+          });
       }
       return { query: args.query, matches: results };
     },

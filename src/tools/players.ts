@@ -2,6 +2,7 @@ import { z } from "zod";
 import { apiGet } from "../client.js";
 import { getCountries } from "../constants.js";
 import { leaverStatusLabel } from "../mapping.js";
+import { normalizeStatField } from "../constants.js";
 import { gameModeName, heroRef, laneRoleLabel, lobbyTypeName, patchName, rankTierToLabel, regionName, enrichPlayerMatchRow, formatTimestamp } from "../mapping.js";
 import { sampleFields } from "../stats.js";
 import { effectiveLanguage, languageParam, playerFilterShape, toQuery, type ToolDef } from "./registry.js";
@@ -84,7 +85,8 @@ export const playerTools: ToolDef[] = [
       "ONE-CALL player dashboard — the player's background context in a single response: profile + rank, " +
       "lifetime volume and win rate, recent form (last 20: streak, averages, mode mix), hero pool with " +
       "signature picks, lane-role distribution with win rates, top duo partners, and rank trend. " +
-      "Use this FIRST for any 'how is this player / 这玩家怎么样 / 战绩如何' question instead of assembling " +
+      "Users ask: '看看这个玩家怎么样', '我朋友水平如何'. " +
+      "Use this FIRST for any 'how is this player' question instead of assembling " +
       "get_player + heroes + counts + recent matches yourself; the context_note says which tool drills deeper " +
       "for each follow-up.",
     schema: {
@@ -360,7 +362,8 @@ export const playerTools: ToolDef[] = [
       "win rate + trend (first vs second half), current & longest streaks, per-hero table with KDA, " +
       "mode/party breakdowns, session pattern, best/worst heroes. The per-match rows are aggregated " +
       "SERVER-SIDE into a compact report (~3 KB) so neither API quota nor context window explodes. " +
-      "Use this for 'analyze my last N games' questions — NEVER loop get_match over a match list; " +
+      "Users ask: '分析我近100场', '分析我今年8月的数据'. " +
+      "Use this for bulk form analysis — NEVER loop get_match over a match list; " +
       "pick specific match_ids from this report for deep dives instead. offset paginates backward through " +
       "history (SQL-style limit/offset over the window) — 'the 100 games before that' is offset=100.",
     schema: {
@@ -970,12 +973,17 @@ export const playerTools: ToolDef[] = [
       "gold_per_min, xp_per_min, last_hits, hero_damage, duration, lane_role, leaver_status, game_mode.",
     schema: {
       account_id: accountId,
-      field: z.string().describe("Stat field to histogram, e.g. 'kills', 'gold_per_min', 'duration'."),
+      field: z
+        .string()
+        .describe(
+          "Stat field to histogram - full names ('kills', 'gold_per_min', 'duration') or how people say it: 'gpm', 'xpm', 'cs', 'damage', 'healing'.",
+        ),
       ...playerFilterShape,
     },
     handler: async (args) => {
       const { field, ...rest } = args;
-      return apiGet(`/players/${args.account_id}/histograms/${encodeURIComponent(String(field))}`, {
+      const normField = normalizeStatField(field);
+      return apiGet(`/players/${args.account_id}/histograms/${encodeURIComponent(normField)}`, {
         query: toQuery(filtersOf(rest)),
         ttl: "player",
       });

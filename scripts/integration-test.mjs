@@ -148,7 +148,8 @@ const heroStats = await call(client, "get_hero_stats", {});
 const heroList = Array.isArray(heroStats) ? heroStats : heroStats.heroes;
   const enriched = heroList.find((h) => h.hero?.id === 1);
   ok("hero_stats wrapper carries bracket-order note", !Array.isArray(heroStats) && typeof heroStats.note === "string" && heroStats.note.includes("LOW skill to HIGH"));
-ok("hero stats carry hero ref + computed win rate", typeof enriched?.pro_win_rate_pct === "number" || "pro_win_rate_pct" in (enriched ?? {}), head(enriched?.pro_win_rate_pct));
+const anyWinRate = Object.keys(enriched ?? {}).find((k) => /_win_rate_pct$/.test(k));
+ok("hero stats carry hero ref + computed win rate", enriched?.hero != null && anyWinRate != null, `${anyWinRate ?? "none"} (pro window can be empty for a given hero)`);
 
 const ruHeroes = await call(client, "get_heroes", { language: "ru" });
 ok("language alias 'ru' works", ruHeroes[0]?.name === "Anti-Mage" || ruHeroes.some((h) => /[А-Яа-я]/.test(h.name)), ruHeroes[0]?.name);
@@ -188,7 +189,7 @@ try {
   const client3 = new Client({ name: "integration-test", version: "0.0.0" });
   await client3.connect(transport3);
   const t3 = await client3.listTools();
-  ok("npx-launched server lists tools", t3.tools.length === 56, `got ${t3.tools.length}`);
+  ok("npx-launched server lists tools", t3.tools.length === 57, `got ${t3.tools.length}`);
   const r3 = await call(client3, "search_dota_entities", { query: "斧王", language: "schinese" });
   ok("npx-launched server serves localized queries", r3.matches?.some((m) => m.name === "斧王"), head(r3.matches?.[0]));
   await client3.close();
@@ -870,13 +871,15 @@ console.log("\n■ Regression R — STRATZ provider (bracket/position aggregates
     OPENDOTA_BUNDLE_PERSIST: "0",
   });
   const scTools = (await sc.listTools()).tools;
-  ok("STRATZ token → 66 tools", scTools.length === 66, `got ${scTools.length}`);
+  ok("STRATZ token → 67 tools", scTools.length === 67, `got ${scTools.length}`);
   for (const n of ["get_matchups_by_rank", "get_item_builds_by_rank", "get_talent_stats", "get_lane_matchups", "get_draft_advice", "get_skill_builds_by_rank", "get_hero_position_stats", "get_draft_composition", "get_match_coaching", "get_hero_trend"]) {
     ok(`registers ${n}`, scTools.some((t) => t.name === n));
   }
 
   const hitsBefore = gqlHits;
   const mu = await call(sc, "get_matchups_by_rank", { hero: "幻影刺客", bracket: "divine_immortal", take: 3, language: "schinese" });
+  const muSyn = await call(sc, "get_matchups_by_rank", { hero: 44, vs_hero: 36, bracket: "high" });
+  ok("bracket 'high' normalizes to divine_immortal", /超凡|divine/i.test(String(muSyn.bracket ?? "")) || muSyn.vs_hero_matchup != null, head(muSyn.bracket));
   ok(
     "matchups by rank: recomputed WR + ci95 + bracket label",
     mu.strong_against?.[0]?.win_rate_pct === 65.2 && mu.strong_against?.[0]?.games === 250 && typeof mu.strong_against?.[0]?.win_rate_ci95_pp === "number",
@@ -1201,6 +1204,9 @@ if (!LIVE) {
   const badDate = await expectError(yClient, "get_player_match_analytics", { account_id: 48645517, from: "not-a-date" });
   ok("analytics: bad date rejected with hint", badDate.isError || JSON.parse(badDate.text).error != null);
 
+  const rec = await call(yClient, "get_records", { field: "gpm", hero_id: 44, language: "schinese" });
+  ok("records: global board filtered by hero", rec.field === "gold_per_min" && Array.isArray(rec.records) && rec.records.length > 0 && typeof rec.records[0].score === "number", head(rec.records?.[0]));
+
   const page2 = await call(yClient, "get_player_match_analytics", { account_id: 48645517, limit: 50, offset: 50 });
   const page1ids = new Set(an.recent_matches.map((m) => m.match_id));
   ok(
@@ -1260,6 +1266,20 @@ console.log("\n■ X: community nickname aliases (黑话)");
   const kitAmb = await expectError(xClient, "get_hero_kit", { hero: "猴子", language: "schinese" });
   ok("get_hero_kit(猴子) errors with candidates instead of guessing", kitAmb.isError || JSON.parse(kitAmb.text).ambiguous != null, head(kitAmb.text));
 
+  // X4b: typo tolerance (fuzzy layer).
+  const typoItem = await call(xClient, "search_dota_entities", { query: "batle fury", language: "schinese" });
+  const typoHit = typoItem.matches?.find((m) => m.match_type === "fuzzy" && m.name_en === "Battle Fury");
+  ok("typo 'batle fury' fuzzy-matches Battle Fury with confidence", !!typoHit && typoHit.confidence >= 0.9, JSON.stringify(typoItem.matches?.[0]));
+  const typoHero = await expectError(xClient, "get_hero_kit", { hero: "amti mage", language: "schinese" });
+  ok("typo 'amti mage' yields did-you-mean Anti-Mage", /Anti-Mage/.test(typoHero.text), typoHero.text.slice(0, 120));
+  const adopt = await call(xClient, "get_hero_kit", { hero: "phantom asasin", language: "schinese" });
+  ok("near-perfect typo 'phantom asasin' auto-adopts Phantom Assassin", adopt.hero?.name_en === "Phantom Assassin", adopt.hero?.name_en);
+
+  // X4c: natural-language parameter values.
+  const hist = await call(xClient, "get_player_histogram", { account_id: 48645517, field: "gpm", limit: 2 });
+  ok("histogram field 'gpm' normalizes to gold_per_min", Array.isArray(hist) && hist.length > 0, head(hist));
+  const cnt = await call(xClient, "get_player_counts", { account_id: 48645517, lane_role: "safelane" });
+  ok("lane_role 'safelane' normalizes to Safe", cnt.lane_role && "Safe" in cnt.lane_role, Object.keys(cnt.lane_role ?? {}).join(","));
   // X5: user extension file — custom aliases win, invalid targets are dropped silently.
   const { mkdtempSync: mkAliasDir, writeFileSync: wfAlias } = await import("node:fs");
   const aliasDir = mkAliasDir((await import("node:path")).join((await import("node:os")).tmpdir(), "opendota-mcp-aliases-"));

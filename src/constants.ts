@@ -124,6 +124,47 @@ export const LANE_LABELS_I18N: Record<string, Record<number, string>> = {
   schinese: { 1: "下路", 2: "中路", 3: "上路", 4: "天辉野区", 5: "夜魇野区" },
   tchinese: { 1: "下路", 2: "中路", 3: "上路", 4: "天輝野區", 5: "夜魇野區" },
 };
+/**
+ * Natural-language parameter values - how humans actually say lane names and
+ * stat fields. English colloquial forms (safelane/carry/pos 1) and Chinese
+ * (优势路/中路), normalizing to OpenDota enum values.
+ */
+export const LANE_ROLE_SYNONYMS: Record<string, number> = {
+  safelane: 1, "safe lane": 1, safe: 1, carry: 1, "pos 1": 1, pos1: 1, "position 1": 1, "1": 1,
+  "优势路": 1, "安全路": 1,
+  mid: 2, midlane: 2, "mid lane": 2, middle: 2, "pos 2": 2, pos2: 2, "position 2": 2, "2": 2,
+  "中路": 2, "中单": 2,
+  offlane: 3, "off lane": 3, off: 3, "hard lane": 3, hardlane: 3, "pos 3": 3, pos3: 3, "position 3": 3, "3": 3,
+  "劣势路": 3,
+  jungle: 4, jungler: 4, "pos 4": 4, pos4: 4, "position 4": 4, "4": 4, "野区": 4,
+  roam: 4, roaming: 4, "游走": 4,
+};
+export const STAT_FIELD_SYNONYMS: Record<string, string> = {
+  gpm: "gold_per_min", goldpermin: "gold_per_min",
+  xpm: "xp_per_min", exppermin: "xp_per_min",
+  cs: "last_hits", lh: "last_hits", lasthits: "last_hits", "creep score": "last_hits",
+  kill: "kills", death: "deaths", assist: "assists",
+  damage: "hero_damage", herodamage: "hero_damage", "伤害": "hero_damage",
+  healing: "hero_healing", heal: "hero_healing", "治疗": "hero_healing",
+  "match duration": "duration", matchlength: "duration", "match length": "duration",
+  denys: "denies", deny: "denies",
+  levels: "level",
+};
+/** Normalize a lane-role-ish input (number, label, or synonym) to the enum int. */
+export function normalizeLaneRole(input: number | string | undefined): number | undefined {
+  if (input == null) return undefined;
+  if (typeof input === "number") return input;
+  const q = input.trim().toLowerCase();
+  const byLabel = Object.entries(LANE_ROLE_LABELS).find(([, label]) => label.toLowerCase() === q);
+  if (byLabel) return Number(byLabel[0]);
+  return LANE_ROLE_SYNONYMS[q];
+}
+/** Normalize a stat-field-ish input via synonyms (exact field names pass through). */
+export function normalizeStatField(input: string): string {
+  const q = input.trim().toLowerCase();
+  return STAT_FIELD_SYNONYMS[q] ?? input;
+}
+
 export const SIDE_LABELS_I18N: Record<string, Record<string, string>> = {
   english: { radiant: "Radiant", dire: "Dire" },
   schinese: { radiant: "天辉", dire: "夜魇" },

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { apiGet } from "../client.js";
 import { getItemIds, getItems } from "../constants.js";
 import { lookupItemAlias } from "../aliases.js";
+import { bestFuzzyMatch } from "../fuzzy.js";
 import { getLocaleBundle } from "../locales.js";
 import { abilityRef, laneRoleLabel, rankTierToLabel } from "../mapping.js";
 import { itemInternalRef } from "../enrich.js";
@@ -46,7 +47,16 @@ async function resolveItemIdInput(input: number | string, lang = "english"): Pro
   const partial = Object.entries(itemIds).filter(([, internal]) =>
     String(items[String(internal)]?.dname ?? "").toLowerCase().includes(q),
   );
-  return partial.length === 1 ? Number(partial[0][0]) : undefined;
+  if (partial.length === 1) return Number(partial[0][0]);
+  // Typo tolerance for item names ("batle fury"); localized display names join
+  // the candidate pool so fuzzy works in any configured language.
+  const candidates = Object.entries(itemIds).map(([id, internal]) => ({
+    value: String(items[String(internal)]?.dname ?? String(internal)),
+    also: [String(internal), localItems[String(id)]?.name ?? ""].filter(Boolean) as string[],
+    id: Number(id),
+  }));
+  const hit = bestFuzzyMatch(input, candidates, 0.9);
+  return hit ? candidates.find((c) => c.value === hit.value)?.id : undefined;
 }
 
 
