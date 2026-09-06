@@ -919,6 +919,60 @@ const rawStratzTools: ToolDef[] = [
     },
   },
   {
+    name: "run_stratz_query",
+    description:
+      "Run a READ-ONLY GraphQL query directly against the STRATZ API — the long-tail escape hatch for aggregates " +
+      "the dedicated tools don't cover (prefer those first: matchups/items/talents/lanes/draft/trend/coaching). " +
+      "Explore the schema at https://api.stratz.com/graphiql (introspection works here too). Example: " +
+      "{ heroStats { winDay(heroIds: [44]) { heroId day winCount matchCount } } }. Uses your session's STRATZ " +
+      "credential; results cached 30 min; mutations and subscriptions are rejected.",
+    schema: {
+      query: z.string().min(8).describe("GraphQL document (query only). Explore fields at api.stratz.com/graphiql."),
+      variables: z.record(z.string(), z.unknown()).optional().describe("Optional GraphQL variables."),
+      language: languageParam,
+    },
+    handler: async (args) => {
+      const doc = args.query.trim();
+      const isWrite = /^\s*(mutation|subscription)\b/i.test(doc) || /\b(mutation|subscription)\s+[A-Za-z_]/.test(doc);
+      if (isWrite) {
+        return { error: "Only read-only queries are allowed — mutation/subscription documents are rejected." };
+      }
+      const res = (await stratzQuery("rawQuery", doc, {
+        ttlMs: 30 * 60 * 1000,
+        variables: args.variables as Record<string, unknown> | undefined,
+        returnErrors: true,
+      })) as { data?: unknown; errors?: { message: string }[] } | undefined;
+      if (!res) return { error: "STRATZ returned an empty response." };
+      const MAX_BYTES = 200 * 1024;
+      let payload = res.data ?? {};
+      let truncated = false;
+      if (JSON.stringify(payload).length > MAX_BYTES) {
+        const asRecord = payload as Record<string, unknown>;
+        // Halve top-level fields until under budget; if a single field is huge,
+        // drop it wholesale with a marker rather than corrupting values.
+        const keys = Object.keys(asRecord);
+        while (JSON.stringify(asRecord).length > MAX_BYTES && Object.keys(asRecord).length > 1) {
+          delete asRecord[Object.keys(asRecord).at(-1) as string];
+        }
+        if (JSON.stringify(asRecord).length > MAX_BYTES && keys.length) {
+          payload = { note: `response exceeded ${MAX_BYTES} bytes — narrow the query (fewer fields / LIMIT)` };
+        } else {
+          payload = { ...asRecord, _dropped_fields: keys.filter((k) => !(k in asRecord)) };
+        }
+        truncated = true;
+      }
+      return {
+        data: payload,
+        ...(res.errors?.length ? { errors: res.errors.map((e) => e.message) } : {}),
+        ...(truncated ? { truncated: true, hint: "Response truncated — select fewer fields or add limits." } : {}),
+        note:
+          "Raw STRATZ GraphQL passthrough. Dedicated tools (get_matchups_by_rank etc.) are curated, localized and " +
+          "cited — use them when they fit; this tool is for everything else. Data © STRATZ.",
+        source: "stratz.com",
+      };
+    },
+  },
+  {
     name: "get_skill_builds_by_rank",
     description:
       "Skill build stats WITH RANK-BRACKET AND POSITION FILTER, from STRATZ: for each ability, at what " +

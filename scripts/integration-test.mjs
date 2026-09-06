@@ -871,7 +871,7 @@ console.log("\n■ Regression R — STRATZ provider (bracket/position aggregates
     OPENDOTA_BUNDLE_PERSIST: "0",
   });
   const scTools = (await sc.listTools()).tools;
-  ok("STRATZ token → 67 tools", scTools.length === 67, `got ${scTools.length}`);
+  ok("STRATZ token → 68 tools", scTools.length === 68, `got ${scTools.length}`);
   for (const n of ["get_matchups_by_rank", "get_item_builds_by_rank", "get_talent_stats", "get_lane_matchups", "get_draft_advice", "get_skill_builds_by_rank", "get_hero_position_stats", "get_draft_composition", "get_match_coaching", "get_hero_trend"]) {
     ok(`registers ${n}`, scTools.some((t) => t.name === n));
   }
@@ -879,6 +879,10 @@ console.log("\n■ Regression R — STRATZ provider (bracket/position aggregates
   const hitsBefore = gqlHits;
   const mu = await call(sc, "get_matchups_by_rank", { hero: "幻影刺客", bracket: "divine_immortal", take: 3, language: "schinese" });
   const muSyn = await call(sc, "get_matchups_by_rank", { hero: 44, vs_hero: 36, bracket: "high" });
+  const rawOk = await call(sc, "run_stratz_query", { query: "{ constants { gameVersions { id } } }" });
+  ok("run_stratz_query: raw read-only query returns data", rawOk.data?.constants?.gameVersions?.length > 0, head(rawOk.errors ?? rawOk.data));
+  const rawBad = await call(sc, "run_stratz_query", { query: "mutation { deleteSomething }" });
+  ok("run_stratz_query: mutations rejected", rawBad.error != null && /read-only/.test(rawBad.error), head(rawBad.error));
   ok("bracket 'high' normalizes to divine_immortal", /超凡|divine/i.test(String(muSyn.bracket ?? "")) || muSyn.vs_hero_matchup != null, head(muSyn.bracket));
   ok(
     "matchups by rank: recomputed WR + ci95 + bracket label",
@@ -923,7 +927,8 @@ console.log("\n■ Regression R — STRATZ provider (bracket/position aggregates
 
   // Identical aggregates are served from cache — one upstream GraphQL call per unique query.
   await call(sc, "get_matchups_by_rank", { hero: "幻影刺客", bracket: "divine_immortal", take: 3, language: "schinese" });
-  ok("stratz responses cached (no duplicate upstream query)", gqlHits - hitsBefore === 6, `gql calls since boot section: ${gqlHits - hitsBefore}`);
+  // 6 wrapped-tool queries + 1 raw escape-hatch query (mutation test is rejected client-side)
+  ok("stratz responses cached (no duplicate upstream query)", gqlHits - hitsBefore === 7, `gql calls since boot section: ${gqlHits - hitsBefore}`);
 
   const sb = await call(sc, "get_skill_builds_by_rank", { hero: 44, bracket: "divine_immortal" });
   const dagger = sb.abilities?.find((a) => /dagger/i.test(a.ability));

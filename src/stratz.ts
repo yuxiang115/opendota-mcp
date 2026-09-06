@@ -87,6 +87,10 @@ export interface StratzQueryOptions {
   timeoutMs?: number;
   /** Skip the cache read (still writes the fresh result). */
   noCache?: boolean;
+  /** GraphQL variables sent alongside the query (cache key includes them). */
+  variables?: Record<string, unknown>;
+  /** Return GraphQL errors in the payload instead of throwing (raw passthrough). */
+  returnErrors?: boolean;
 }
 
 /**
@@ -95,7 +99,7 @@ export interface StratzQueryOptions {
  * logs and error messages (e.g. "heroVsHeroMatchup").
  */
 export async function stratzQuery<T = unknown>(label: string, query: string, options: StratzQueryOptions = {}): Promise<T> {
-  const cacheKey = `GQL ${label} ${query}`;
+  const cacheKey = `GQL ${label} ${query}${options.variables ? ` vars=${JSON.stringify(options.variables)}` : ""}`;
   if (!options.noCache) {
     const hit = cache.get(cacheKey);
     if (hit && hit.expiresAt > Date.now()) return hit.data as T;
@@ -122,7 +126,7 @@ export async function stratzQuery<T = unknown>(label: string, query: string, opt
         Authorization: `Bearer ${activeStratzToken()}`,
         "User-Agent": "opendota-mcp (github.com/yuxiang115/opendota-mcp)",
       },
-      body: JSON.stringify({ query }),
+      body: JSON.stringify(options.variables ? { query, variables: options.variables } : { query }),
     });
     const text = await res.text();
     if (res.status === 401 || res.status === 403) {
@@ -143,10 +147,10 @@ export async function stratzQuery<T = unknown>(label: string, query: string, opt
     } catch {
       throw new StratzApiError(`STRATZ returned invalid JSON for ${label}`, 502);
     }
-    if (body.errors?.length) {
+    if (body.errors?.length && !options.returnErrors) {
       throw new StratzApiError(`STRATZ query error (${label}): ${body.errors[0].message}`, 400);
     }
-    data = body.data;
+    data = options.returnErrors ? { data: body.data, errors: body.errors } : body.data;
     logUpstream({
       trace_id: trace.trace_id,
       tool: trace.tool,

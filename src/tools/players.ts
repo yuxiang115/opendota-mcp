@@ -97,19 +97,26 @@ export const playerTools: ToolDef[] = [
     handler: async (args, ctx) => {
       const lang = effectiveLanguage(args.language, ctx);
       const id = args.account_id;
-      const safe = <T,>(p: Promise<T>): Promise<T | undefined> => p.catch(() => undefined);
+      // Sections that fail (rate limit, upstream hiccup) are omitted from the
+      // payload but REPORTED — silent gaps would look like missing data.
+      const failedSections: string[] = [];
+      const safe = <T,>(p: Promise<T>, label: string): Promise<T | undefined> =>
+        p.catch(() => {
+          failedSections.push(label);
+          return undefined;
+        });
       const [profile, wl, heroes, counts, recent, peersRaw, ratings] = await Promise.all([
-        safe(apiGet<Record<string, any>>(`/players/${id}`, { ttl: "player" })),
+        safe(apiGet<Record<string, any>>(`/players/${id}`, { ttl: "player" }), "profile"),
         // significant=0 keeps volume on the same all-modes denominator as
         // counts/by_mode below (OpenDota's default silently drops non-standard
         // modes like Turbo, producing a total that contradicts by_mode).
-        safe(apiGet<Record<string, any>>(`/players/${id}/wl`, { query: { significant: 0 }, ttl: "player" })),
-        safe(apiGet<Record<string, any>[]>(`/players/${id}/heroes`, { query: { significant: 0 }, ttl: "player" })),
-        safe(apiGet<Record<string, any>>(`/players/${id}/counts`, { query: { significant: 0 }, ttl: "player" })),
-        safe(apiGet<Record<string, any>[]>(`/players/${id}/recentMatches`, { ttl: "listing" })),
+        safe(apiGet<Record<string, any>>(`/players/${id}/wl`, { query: { significant: 0 }, ttl: "player" }), "win_loss"),
+        safe(apiGet<Record<string, any>[]>(`/players/${id}/heroes`, { query: { significant: 0 }, ttl: "player" }), "heroes"),
+        safe(apiGet<Record<string, any>>(`/players/${id}/counts`, { query: { significant: 0 }, ttl: "player" }), "counts"),
+        safe(apiGet<Record<string, any>[]>(`/players/${id}/recentMatches`, { ttl: "listing" }), "recent_matches"),
         // peers endpoint mangles ?limit — page locally (see get_player_peers).
-        safe(apiGet<Record<string, any>[]>(`/players/${id}/peers`, { query: { significant: 0 }, ttl: "player" })),
-        safe(apiGet<Record<string, any>[]>(`/players/${id}/ratings`, { ttl: "player" })),
+        safe(apiGet<Record<string, any>[]>(`/players/${id}/peers`, { query: { significant: 0 }, ttl: "player" }), "peers"),
+        safe(apiGet<Record<string, any>[]>(`/players/${id}/ratings`, { ttl: "player" }), "ratings"),
       ]);
 
       const pct1 = (w: number, g: number) => (g > 0 ? Math.round((w / g) * 1000) / 10 : undefined);
@@ -289,6 +296,10 @@ export const playerTools: ToolDef[] = [
           .map((r) => ({ time: formatTimestamp(r.time as number), rank_tier: rankTierToLabel(r.rank_tier as number, undefined, lang) }));
       }
 
+      if (failedSections.length > 0) {
+        overview.failed_sections = failedSections;
+        overview.degraded_note = `These sections failed upstream (likely rate limiting): ${failedSections.join(", ")} — retry shortly for the full dashboard.`;
+      }
       overview.context_note =
         "Snapshot dashboard for orientation. Drill down with: get_player_matches (filters), get_player_heroes " +
         "(full pool), get_player_peers/get_player_partnership (stack analysis), get_match_coaching (review one " +
