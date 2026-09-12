@@ -16,7 +16,7 @@ const heroIdParam = z
   .describe("Hero id (resolve names with search_dota_entities first).");
 
 /** Resolve an item reference (numeric id / internal name / English or localized display name / community nickname) to its item id. */
-async function resolveItemIdInput(input: number | string, lang = "english"): Promise<number | undefined> {
+export async function resolveItemIdInput(input: number | string, lang = "english"): Promise<number | undefined> {
   if (typeof input === "number") return input;
   const q = input.trim().toLowerCase();
   const itemIds = await getItemIds();

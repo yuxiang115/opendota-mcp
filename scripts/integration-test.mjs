@@ -192,7 +192,7 @@ try {
   const client3 = new Client({ name: "integration-test", version: "0.0.0" });
   await client3.connect(transport3);
   const t3 = await client3.listTools();
-  ok("npx-launched server lists tools", t3.tools.length === 57, `got ${t3.tools.length}`);
+  ok("npx-launched server lists tools", t3.tools.length === 58, `got ${t3.tools.length}`);
   const r3 = await call(client3, "search_dota_entities", { query: "斧王", language: "schinese" });
   ok("npx-launched server serves localized queries", r3.matches?.some((m) => m.name === "斧王"), head(r3.matches?.[0]));
   await client3.close();
@@ -874,7 +874,7 @@ console.log("\n■ Regression R — STRATZ provider (bracket/position aggregates
     OPENDOTA_BUNDLE_PERSIST: "0",
   });
   const scTools = (await sc.listTools()).tools;
-  ok("STRATZ token → 68 tools", scTools.length === 68, `got ${scTools.length}`);
+  ok("STRATZ token → 69 tools", scTools.length === 69, `got ${scTools.length}`);
   for (const n of ["get_matchups_by_rank", "get_item_builds_by_rank", "get_talent_stats", "get_lane_matchups", "get_draft_advice", "get_skill_builds_by_rank", "get_hero_position_stats", "get_draft_composition", "get_match_coaching", "get_hero_trend"]) {
     ok(`registers ${n}`, scTools.some((t) => t.name === n));
   }
@@ -1217,6 +1217,12 @@ if (!LIVE) {
     const meTl = (tl.players ?? []).find((p2) => p2.account_id === 48645517)?.item_timeline;
     const deso = meTl?.find((e) => /黯灭|Desolator/.test(String(e.item)));
     ok("item_timeline exposes sold items (desolator 7:04)", !!deso && !!deso.fate, JSON.stringify(meTl?.[0]));
+    const impact = await call(yClient, "get_item_impact", { match_id: 8994479834, item: "desolator", account_id: 48645517, language: "schinese" });
+    ok(
+      "item_impact: hold window + fights + honest attribution note",
+      impact.bought_at === "7:04" && impact.while_holding?.teamfights > 0 && /Amplifier/.test(impact.note ?? ""),
+      `${impact.item} @${impact.bought_at} fights=${impact.while_holding?.teamfights}`,
+    );
   }
 
   const rec = await call(yClient, "get_records", { field: "gpm", hero_id: 44, language: "schinese" });
