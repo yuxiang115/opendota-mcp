@@ -363,6 +363,31 @@ async function enrichMatchPlayer(
       items.push({ slot, ...ref, purchased_at: key && purchaseTime[key] != null ? formatDuration(purchaseTime[key]) : undefined });
     }
   }
+  // Notable-item timeline (default view): completed purchases >= ~2000 gold,
+  // INCLUDING items later sold/replaced — the "build story" coaches ask about.
+  // OpenDota has no sell log, so fate is inferred: bought but absent from the
+  // final inventory = sold or consumed. Consumables never cost this much.
+  const finalKeys = new Set(
+    [...ITEM_SLOTS.map((sl) => p[`item_${sl}`]), ...BACKPACK_SLOTS.map((sl) => p[`backpack_${sl}`])]
+      .filter((v) => v != null && v !== 0)
+      .map((v) => shortItemKey(v as number))
+      .filter(Boolean) as string[],
+  );
+  const NOTABLE_COST = 2000;
+  const seen = new Set<string>();
+  const itemTimeline: Record<string, unknown>[] = [];
+  for (const e of (p.purchase_log ?? []) as { time: number; key: string }[]) {
+    const cost = await itemCostByKey(e.key);
+    if (cost == null || cost < NOTABLE_COST || seen.has(e.key)) continue;
+    seen.add(e.key);
+    const fate = finalKeys.has(e.key) ? undefined : "sold or replaced before the end";
+    itemTimeline.push({
+      item: (await itemInternalRef(e.key, lang))?.name ?? e.key,
+      at: formatDuration(e.time),
+      cost,
+      ...(fate ? { fate } : {}),
+    });
+  }
   const backpack: (NameRef & { slot: number })[] = [];
   for (const slot of BACKPACK_SLOTS) {
     const ref = await itemRef(p[`backpack_${slot}`] as number, lang);
@@ -442,6 +467,9 @@ async function enrichMatchPlayer(
     observer_purchases: p.purchase_ward_observer,
     sentry_purchases: p.purchase_ward_sentry,
     items,
+    ...(itemTimeline.length > 0
+      ? { item_timeline: itemTimeline, item_timeline_note: "Notable purchases (>=2000 gold) in order — items with a 'fate' were sold/replaced later; this is the full build story, unlike the final six slots above." }
+      : {}),
     backpack,
     neutral_item: neutral,
     neutral_item_2: neutral2,

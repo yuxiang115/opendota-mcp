@@ -131,7 +131,10 @@ const match = await call(client, "get_match", {
 ok("match: 10 players", match.players?.length === 10);
 ok("match: players carry named items", Array.isArray(match.players[0]?.items) && match.players[0].items.every((i) => i.name));
 ok("match: game mode is readable label", typeof match.game_mode === "string" && !/game_mode/.test(match.game_mode), match.game_mode);
-ok("match: picks_bans resolved to hero names", match.picks_bans?.every((pb) => pb.hero?.name));
+ok(
+  "match: picks_bans resolved to hero names (absent bans ok in non-CM)",
+  match.picks_bans == null || match.picks_bans.every((pb) => pb.hero?.name),
+);
 ok(
   "match: advantage graphs included (or flagged unparsed)",
   Array.isArray(match.radiant_gold_advantage_by_minute) || /Unparsed/.test(match.note ?? ""),
@@ -139,7 +142,7 @@ ok(
 );
 const mvp = [...match.players].sort((a, b) => (b.hero_damage ?? 0) - (a.hero_damage ?? 0))[0];
 console.log(`  → MVP视角: ${mvp.personaname} (${mvp.hero.name}) ${mvp.kills}/${mvp.deaths}/${mvp.assists} KDA ${mvp.kda}, 伤害 ${mvp.hero_damage}`);
-console.log(`  → BP前4手: ${match.picks_bans.slice(0, 4).map((pb) => `${pb.is_pick ? "选" : "禁"}${pb.hero.name}`).join(" ")}`);
+if (Array.isArray(match.picks_bans) && match.picks_bans.length > 0) console.log(`  → BP前4手: ${match.picks_bans.slice(0, 4).map((pb) => `${pb.is_pick ? "选" : "禁"}${pb.hero?.name ?? "?"}`).join(" ")}`);
 console.log(`  → 出装示例: ${match.players[0].items.map((i) => i.name).join(", ")}`);
 
 // ─────────────────────────────────────────────────────────────
@@ -1208,6 +1211,13 @@ if (!LIVE) {
   ok("analytics: month window filters correctly", aug.window?.games > 0 && aug.window.days_spanned <= 31 && aug.window.coverage === "complete", `${aug.window?.games} games / ${aug.window?.days_spanned}d`);
   const badDate = await expectError(yClient, "get_player_match_analytics", { account_id: 48645517, from: "not-a-date" });
   ok("analytics: bad date rejected with hint", badDate.isError || JSON.parse(badDate.text).error != null);
+
+  {
+    const tl = await call(yClient, "get_match", { match_id: 8994479834, language: "schinese" });
+    const meTl = (tl.players ?? []).find((p2) => p2.account_id === 48645517)?.item_timeline;
+    const deso = meTl?.find((e) => /黯灭|Desolator/.test(String(e.item)));
+    ok("item_timeline exposes sold items (desolator 7:04)", !!deso && !!deso.fate, JSON.stringify(meTl?.[0]));
+  }
 
   const rec = await call(yClient, "get_records", { field: "gpm", hero_id: 44, language: "schinese" });
   ok("records: global board filtered by hero", rec.field === "gold_per_min" && Array.isArray(rec.records) && rec.records.length > 0 && typeof rec.records[0].score === "number", head(rec.records?.[0]));
